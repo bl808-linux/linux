@@ -17,6 +17,8 @@ use crate::{
 };
 use core::{marker::PhantomData, ptr::NonNull};
 
+mod data;
+
 /// A registered serial driver. Ports retain a reference until removal completes.
 #[pin_data(PinnedDrop)]
 pub struct Driver {

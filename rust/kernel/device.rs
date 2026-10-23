@@ -417,6 +417,25 @@ impl<Ctx: DeviceContext> Device<Ctx> {
         Some(unsafe { &*fwnode_handle.cast() })
     }
 
+    /// Returns the device tree alias index for the given alias stem.
+    ///
+    /// Returns an error if this device has no device tree node or matching alias.
+    #[cfg(CONFIG_OF)]
+    pub fn of_alias_id(&self, stem: &CStr) -> Result<u32> {
+        // SAFETY: self holds a live device; its OF node remains valid during this call.
+        let node = unsafe { (*self.as_raw()).of_node };
+        if node.is_null() {
+            return Err(ENODEV);
+        }
+        // SAFETY: node and the null-terminated alias stem are valid for this call.
+        let index = unsafe { bindings::of_alias_get_id(node, stem.as_char_ptr()) };
+        if index < 0 {
+            Err(Error::from_errno(index))
+        } else {
+            Ok(index as u32)
+        }
+    }
+
     /// Returns the name of the device.
     ///
     /// This is the kobject name of the device, or its initial name if the kobject is not yet

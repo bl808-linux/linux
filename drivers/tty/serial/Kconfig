@@ -26,6 +26,16 @@ config RUST_SERIAL_ABSTRACTIONS
 	  Minimal serial-core support used by Rust UART drivers. The serial
 	  core is built in so that the kernel crate can call its functions.
 
+config SERIAL_BFLB_RUST
+	tristate "Bouffalo Lab serial port support in Rust"
+	depends on RUST && OF && COMMON_CLK && HAS_IOMEM
+	select RUST_SERIAL_ABSTRACTIONS
+	help
+	  Interrupt-driven two-wire UART support for the Bouffalo Lab BL808.
+	  Ports appear as /dev/ttySn using the device tree serial aliases.
+	  Kernel console, DMA and hardware flow control are not supported.
+	  To build a module, choose M here; it will be called bflb_uart.
+
 config SERIAL_AMBA_PL010
 	tristate "ARM AMBA PL010 serial port support"
 	depends on ARM_AMBA || COMPILE_TEST

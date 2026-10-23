@@ -123,6 +123,7 @@ pub mod pwm;
 pub mod ratelimit;
 pub mod rbtree;
 pub mod regulator;
+pub mod reset;
 pub mod revocable;
 pub mod safety;
 pub mod scatterlist;

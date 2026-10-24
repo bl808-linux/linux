@@ -19,10 +19,24 @@ use core::{marker::PhantomData, ptr::NonNull};
 
 mod data;
 
+struct SharedPort {
+    context: *mut crate::ffi::c_void,
+    console_write: unsafe fn(*mut bindings::uart_port, *const u8, usize),
+}
+
+/// Optional built-in console configuration.
+pub struct ConsoleConfig {
+    /// Baud rate used when no explicit console options were supplied.
+    pub baud: u32,
+}
+
 /// A registered serial driver. Ports retain a reference until removal completes.
 #[pin_data(PinnedDrop)]
 pub struct Driver {
     name: &'static CStr,
+    console_enabled: bool,
+    #[pin]
+    console: Opaque<bindings::console>,
     #[pin]
     inner: Opaque<bindings::uart_driver>,
 }
@@ -38,10 +52,18 @@ impl Driver {
         name: &'static CStr,
         device_name: &'static CStr,
         ports: u32,
+        console_config: Option<ConsoleConfig>,
         module: &'static ThisModule,
     ) -> impl PinInit<Self, Error> {
-        try_pin_init!(Self {
+        let baud = console_config.as_ref().map_or(0, |config| config.baud);
+        let console_enabled = console_config.is_some();
+        try_pin_init!(&this in Self {
             name,
+            console_enabled,
+            console <- Opaque::ffi_init(|ptr: *mut bindings::console| {
+                // SAFETY: The console is private and pinned before driver publication.
+                unsafe { ptr.write(bindings::console::default()) };
+            }),
             inner <- Opaque::try_ffi_init(move |ptr: *mut bindings::uart_driver| {
                 if ports == 0 || ports > i32::MAX as u32 {
                     return Err(EINVAL);
@@ -54,10 +76,89 @@ impl Driver {
                     (*ptr).driver_name = name.as_char_ptr();
                     (*ptr).dev_name = device_name.as_char_ptr();
                     (*ptr).nr = ports as i32;
+                    if *console_enabled {
+                        if baud == 0 || baud > i32::MAX as u32 || ports > i16::MAX as u32 || device_name.to_bytes().len() >= 16 {
+                            return Err(EINVAL);
+                        }
+                        #[cfg(not(CONFIG_SERIAL_CORE_CONSOLE))]
+                        return Err(EOPNOTSUPP);
+                        #[cfg(CONFIG_SERIAL_CORE_CONSOLE)]
+                        {
+                            let console = (*this.as_ptr()).console.get();
+                            core::ptr::copy_nonoverlapping(
+                                device_name.as_char_ptr(), (*console).name.as_mut_ptr(),
+                                device_name.to_bytes().len(),
+                            );
+                            (*console).write = Some(Self::console_write);
+                            (*console).setup = Some(Self::console_setup);
+                            (*console).device = Some(bindings::uart_console_device);
+                            (*console).flags = bindings::cons_flags_CON_PRINTBUFFER as i16;
+                            (*console).index = -1;
+                            (*console).ispeed = baud;
+                            (*console).ospeed = baud;
+                            (*console).data = ptr.cast();
+                            (*ptr).cons = console;
+                        }
+                    }
                     to_result(bindings::uart_register_driver(ptr))
                 }
             }),
         })
+    }
+
+    #[cfg(CONFIG_SERIAL_CORE_CONSOLE)]
+    unsafe fn console_port(console: *mut bindings::console) -> *mut bindings::uart_port {
+        // SAFETY: Serial core invokes callbacks only while this pinned console and driver
+        // are live. Port removal unregisters the console before releasing its port state.
+        unsafe {
+            let driver = (*console).data.cast::<bindings::uart_driver>();
+            if driver.is_null() || (*driver).state.is_null() {
+                return core::ptr::null_mut();
+            }
+            let index = (*console).index;
+            if index < 0 || i32::from(index) >= (*driver).nr {
+                return core::ptr::null_mut();
+            }
+            (*(*driver).state.add(index as usize)).uart_port
+        }
+    }
+
+    #[cfg(CONFIG_SERIAL_CORE_CONSOLE)]
+    unsafe extern "C" fn console_setup(
+        console: *mut bindings::console,
+        options: *mut crate::ffi::c_char,
+    ) -> i32 {
+        // SAFETY: Console core holds console_list_lock; serial core has published the port
+        // before registering this console. uart_set_options calls our termios adapter.
+        unsafe {
+            let port = Self::console_port(console);
+            if port.is_null() {
+                return ENODEV.to_errno();
+            }
+            let mut baud = (*console).ispeed as i32;
+            let (mut parity, mut bits, mut flow) = (b'n' as i32, 8, b'n' as i32);
+            if !options.is_null() {
+                bindings::uart_parse_options(options, &mut baud, &mut parity, &mut bits, &mut flow);
+            }
+            bindings::uart_set_options(port, console, baud, parity, bits, flow)
+        }
+    }
+
+    #[cfg(CONFIG_SERIAL_CORE_CONSOLE)]
+    unsafe extern "C" fn console_write(
+        console: *mut bindings::console,
+        text: *const crate::ffi::c_char,
+        count: u32,
+    ) {
+        // SAFETY: Console unregistration synchronizes printing before port removal. The
+        // shared callback belongs to the concrete port type and cannot retain the text.
+        unsafe {
+            let port = Self::console_port(console);
+            if !port.is_null() {
+                let shared = &*(*port).private_data.cast::<SharedPort>();
+                (shared.console_write)(port, text.cast(), count as usize);
+            }
+        }
     }
 }
 
@@ -74,6 +175,10 @@ impl PinnedDrop for Driver {
 /// Callbacks must not sleep, except `quiesce`, `startup` and `shutdown`, which are
 /// called from the serial-core open/close path without the UART spinlock held.
 pub trait Operations: Send + Sync + Sized {
+    /// Whether the driver implements the optional polling console callback.
+    const HAS_CONSOLE: bool = false;
+    /// Writes a console message without sleeping or allocating.
+    fn console_write(&self, _port: &Port<'_, Self>, _bytes: &[u8]) {}
     /// Whether both the transmit FIFO and shift register are empty.
     fn tx_empty(&self) -> bool;
     /// Sets modem outputs; two-wire drivers may document an empty implementation.
@@ -114,10 +219,13 @@ pub struct PortConfig {
 ///
 /// # Invariants
 ///
-/// The C port is registered and its private_data points to this object. The object,
+/// The C port is registered and its private_data points to the pinned shared state,
+/// whose context points to this object. The object,
 /// device and hardware state remain valid until uart_remove_one_port completes.
 #[pin_data(PinnedDrop)]
 pub struct Port<'bound, T: Operations> {
+    #[pin]
+    shared: Opaque<SharedPort>,
     #[pin]
     inner: Opaque<bindings::uart_port>,
     #[pin]
@@ -149,6 +257,15 @@ impl<'bound, T: Operations + 'bound> Port<'bound, T> {
         data: impl PinInit<T, Error> + 'bound,
     ) -> impl PinInit<Self, Error> + 'bound {
         try_pin_init!(&this in Self {
+            shared <- Opaque::ffi_init(|ptr: *mut SharedPort| {
+                // SAFETY: The state is private and initialized before port publication.
+                unsafe {
+                    ptr.write(SharedPort {
+                        context: this.as_ptr().cast(),
+                        console_write: Self::console_write,
+                    });
+                }
+            }),
             data <- data,
             driver,
             device,
@@ -168,7 +285,7 @@ impl<'bound, T: Operations + 'bound> Port<'bound, T> {
                     (*ptr).type_ = bindings::PORT_GENERIC as u32;
                     bindings::uart_port_set_boot_autoconf(ptr);
                     (*ptr).ops = &Self::OPS;
-                    (*ptr).private_data = this.as_ptr().cast();
+                    (*ptr).private_data = (*this.as_ptr()).shared.get().cast();
                 }
             }),
             _: {
@@ -178,7 +295,8 @@ impl<'bound, T: Operations + 'bound> Port<'bound, T> {
                 // SAFETY: The line is within the driver's advertised array. C rejects duplicate
                 // lines. On failure it does not retain the port.
                 unsafe {
-                    if config.line >= (*port.driver.inner.get()).nr as u32 {
+                    if config.line >= (*port.driver.inner.get()).nr as u32
+                        || (port.driver.console_enabled && !T::HAS_CONSOLE) {
                         return Err(EINVAL);
                     }
                     to_result(bindings::uart_add_one_port(
@@ -197,6 +315,7 @@ impl<'bound, T: Operations + 'bound> Port<'bound, T> {
         let guard = PortGuard {
             port: self.inner.get(),
             flags,
+            unlock: true,
         };
         let locked = LockedPort {
             raw: self.inner.get(),
@@ -207,11 +326,42 @@ impl<'bound, T: Operations + 'bound> Port<'bound, T> {
         result
     }
 
+    /// Runs a non-sleeping polling console operation under the UART lock.
+    /// During an oops, failure to trylock permits best-effort emergency output.
+    #[cfg(CONFIG_SERIAL_CORE_CONSOLE)]
+    pub fn with_console_lock<R>(&self, f: impl FnOnce() -> R) -> R {
+        let mut flags = 0;
+        // SAFETY: The port is live throughout the console callback.
+        let unlock = unsafe { bindings::uart_port_console_lock(self.inner.get(), &mut flags) };
+        let guard = PortGuard {
+            port: self.inner.get(),
+            flags,
+            unlock,
+        };
+        let result = f();
+        drop(guard);
+        result
+    }
+
+    unsafe fn console_write(port: *mut bindings::uart_port, text: *const u8, count: usize) {
+        // SAFETY: Only Driver's console adapter invokes this callback for a live port and
+        // a text slice supplied by console core. No reference escapes this call.
+        unsafe {
+            let port = Self::from_raw(port);
+            port.data
+                .console_write(port, core::slice::from_raw_parts(text, count));
+        }
+    }
+
     /// # Safety
     /// ptr must refer to this registered port for the returned borrow.
     unsafe fn from_raw<'a>(ptr: *mut bindings::uart_port) -> &'a Self {
-        // SAFETY: private_data is initialized to the pinned Self in new.
-        unsafe { &*((*ptr).private_data.cast::<Self>()) }
+        // SAFETY: private_data points to our initialized shared state; context is Self.
+        unsafe {
+            &*((*(*ptr).private_data.cast::<SharedPort>())
+                .context
+                .cast::<Self>())
+        }
     }
 
     const OPS: bindings::uart_ops = bindings::uart_ops {
@@ -309,6 +459,7 @@ impl<'bound, T: Operations + 'bound> Port<'bound, T> {
             port.data.quiesce(port);
             // SAFETY: Serial core provides live TTY state. No IRQ producer is active yet.
             to_result(unsafe { bindings::uart_prepare_receive(ptr) })?;
+
             // SAFETY: Port::new requires an IRQ belonging to device. No registration exists
             // before startup, and serial core serializes startup and shutdown.
             let request = unsafe { irq::IrqRequest::new(port.device, port.irq_number) };
@@ -396,6 +547,10 @@ impl<'a, T: Operations + 'a> PinnedDrop for Port<'a, T> {
         // SAFETY: This port was successfully added and is still pinned. Removal hangs up all
         // users and invokes shutdown before returning, while hardware and driver remain alive.
         unsafe { bindings::uart_remove_one_port(self.driver.inner.get(), self.inner.get()) };
+        // No new open can race now. A console may have retained its IRQ after last close.
+        // The driver's Arc still keeps uart_state/tty_port alive until both handlers stop.
+        self.data.shutdown(&self);
+        drop(self.irq.lock().take());
     }
 }
 
@@ -412,7 +567,7 @@ unsafe impl<'a, T: Operations + 'a> Sync for PortIrq<'a, T> {}
 
 impl<'a, T: Operations + 'a> irq::Handler for PortIrq<'a, T> {
     fn handle(&self) -> irq::IrqReturn {
-        // SAFETY: shutdown synchronizes the IRQ before the port can be destroyed.
+        // SAFETY: IRQ unregistration synchronizes before the pinned port is destroyed.
         let port = unsafe { self.port.as_ref() };
         port.with_lock(|locked| port.data.handle_irq(locked))
     }
@@ -421,12 +576,15 @@ impl<'a, T: Operations + 'a> irq::Handler for PortIrq<'a, T> {
 struct PortGuard {
     port: *mut bindings::uart_port,
     flags: crate::ffi::c_ulong,
+    unlock: bool,
 }
 
 impl Drop for PortGuard {
     fn drop(&mut self) {
         // SAFETY: PortGuard is created only after acquiring this UART lock.
-        unsafe { bindings::uart_port_unlock_irqrestore(self.port, self.flags) };
+        if self.unlock {
+            unsafe { bindings::uart_port_unlock_irqrestore(self.port, self.flags) };
+        }
     }
 }
 

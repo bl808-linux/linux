@@ -62,6 +62,8 @@ impl SerialOwner {
                 c"bflb_uart",
                 c"ttyS",
                 4,
+                cfg!(CONFIG_SERIAL_BFLB_RUST_CONSOLE)
+                    .then_some(serial::ConsoleConfig { baud: 2_000_000 }),
                 module,
             ),
             GFP_KERNEL,
@@ -189,6 +191,28 @@ struct Hardware<'bound> {
 }
 
 impl Hardware<'_> {
+    #[cfg(CONFIG_SERIAL_BFLB_RUST_CONSOLE)]
+    fn console_poll(&self, ready: impl Fn() -> bool) -> bool {
+        // Bound every wait, including a failed/stopped peripheral during a panic.
+        for _ in 0..100_000 {
+            if ready() {
+                return true;
+            }
+            // SAFETY: cpu_relax is valid in atomic and panic contexts.
+            unsafe { bindings::cpu_relax() };
+        }
+        false
+    }
+
+    #[cfg(CONFIG_SERIAL_BFLB_RUST_CONSOLE)]
+    fn console_putchar(&self, ch: u8) -> bool {
+        if !self.console_poll(|| self.read::<FIFO_CONFIG1>() & 0x3f != 0) {
+            return false;
+        }
+        self.io.as_view().relaxed().write8(ch, FIFO_WDATA);
+        true
+    }
+
     fn read<const REG: usize>(&self) -> u32 {
         self.io.as_view().relaxed().read32(REG)
     }
@@ -262,6 +286,36 @@ impl Hardware<'_> {
 }
 
 impl serial::Operations for Hardware<'_> {
+    const HAS_CONSOLE: bool = cfg!(CONFIG_SERIAL_BFLB_RUST_CONSOLE);
+
+    #[cfg(CONFIG_SERIAL_BFLB_RUST_CONSOLE)]
+    fn console_write(&self, port: &Port<'_, Self>, bytes: &[u8]) {
+        // Serialize the whole record against IRQ-driven TTY output. During an oops
+        // the adapter uses trylock so emergency output cannot wait on a held lock.
+        port.with_console_lock(|| {
+            let mask = self.read::<INT_MASK>();
+            self.write::<INT_MASK>(u32::MAX);
+            self.write::<UTX_CONFIG>(self.read::<UTX_CONFIG>() | 1);
+            let mut complete = true;
+            for &ch in bytes {
+                if ch == b'\n' && !self.console_putchar(b'\r') {
+                    complete = false;
+                    break;
+                }
+                if !self.console_putchar(ch) {
+                    complete = false;
+                    break;
+                }
+            }
+            if complete {
+                self.console_poll(|| {
+                    self.read::<FIFO_CONFIG1>() & 0x3f == 32 && self.read::<STATUS>() & 1 == 0
+                });
+            }
+            self.write::<INT_MASK>(mask);
+        });
+    }
+
     fn tx_empty(&self) -> bool {
         self.read::<FIFO_CONFIG1>() & 0x3f == 32 && self.read::<STATUS>() & 1 == 0
     }

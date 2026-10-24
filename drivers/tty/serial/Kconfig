@@ -34,8 +34,18 @@ config SERIAL_BFLB_RUST
 	help
 	  Interrupt-driven two-wire UART support for the Bouffalo Lab BL808.
 	  Ports appear as /dev/ttySn using the device tree serial aliases.
-	  Kernel console, DMA and hardware flow control are not supported.
+	  DMA and hardware flow control are not supported.
 	  To build a module, choose M here; it will be called bflb_uart.
+
+config SERIAL_BFLB_RUST_CONSOLE
+	bool "Console on the Bouffalo Lab Rust serial driver"
+	depends on SERIAL_BFLB_RUST=y
+	select SERIAL_CORE_CONSOLE
+	help
+	  Use the built-in Rust UART driver for kernel messages and /dev/console.
+	  Select the port with console=ttyS3,2000000n8 or the board stdout-path.
+	  SBI earlycon can provide output before the platform driver probes.
+	  This option requires the UART driver to be built into the kernel.
 
 config SERIAL_AMBA_PL010
 	tristate "ARM AMBA PL010 serial port support"

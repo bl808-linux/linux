@@ -17,6 +17,7 @@
 #define MM_PERI_RESET	0x44
 #define MM_UART_GATE	BIT(16)
 #define MM_UART_RESET	BIT(2)
+#define MM_DMA_RESET	BIT(1)
 
 enum bl808_kind {
 	BL808_CPU_PLL,
@@ -188,13 +189,14 @@ static int bl808_reset_update(struct reset_controller_dev *rc,
 {
 	struct bl808_controller *c = container_of(rc, struct bl808_controller, reset);
 	unsigned long flags;
-	u32 value;
+	u32 value, mask;
 
-	if (id != BL808_MM_RST_UART3)
+	if (id > BL808_MM_RST_DMA2)
 		return -EINVAL;
+	mask = id == BL808_MM_RST_UART3 ? MM_UART_RESET : MM_DMA_RESET;
 	spin_lock_irqsave(&c->lock, flags);
-	value = readl(c->base + MM_PERI_RESET) & ~MM_UART_RESET;
-	writel(value | (asserted ? MM_UART_RESET : 0), c->base + MM_PERI_RESET);
+	value = readl(c->base + MM_PERI_RESET) & ~mask;
+	writel(value | (asserted ? mask : 0), c->base + MM_PERI_RESET);
 	readl(c->base + MM_PERI_RESET);
 	spin_unlock_irqrestore(&c->lock, flags);
 	return 0;
@@ -214,9 +216,10 @@ static int bl808_reset_status(struct reset_controller_dev *rc, unsigned long id)
 {
 	struct bl808_controller *c = container_of(rc, struct bl808_controller, reset);
 
-	if (id != BL808_MM_RST_UART3)
+	if (id > BL808_MM_RST_DMA2)
 		return -EINVAL;
-	return !!(readl(c->base + MM_PERI_RESET) & MM_UART_RESET);
+	return !!(readl(c->base + MM_PERI_RESET) &
+		  (id == BL808_MM_RST_UART3 ? MM_UART_RESET : MM_DMA_RESET));
 }
 
 static const struct reset_control_ops bl808_reset_ops = {
@@ -325,7 +328,7 @@ static int bl808_clock_probe(struct platform_device *pdev)
 		c->reset.ops = &bl808_reset_ops;
 		c->reset.owner = THIS_MODULE;
 		c->reset.of_node = dev->of_node;
-		c->reset.nr_resets = 1;
+		c->reset.nr_resets = 2;
 		ret = devm_reset_controller_register(dev, &c->reset);
 	}
 	if (ret)

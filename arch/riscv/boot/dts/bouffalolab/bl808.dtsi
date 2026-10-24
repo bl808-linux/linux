@@ -83,6 +83,21 @@
 			#clock-cells = <0>;
 		};
 
+		dma2: dma-controller@30001000 {
+			compatible = "bflb,bl808-dma2";
+			reg = <0x30001000 0x1000>;
+			interrupts = <40 IRQ_TYPE_LEVEL_HIGH>, <41 IRQ_TYPE_LEVEL_HIGH>,
+				     <42 IRQ_TYPE_LEVEL_HIGH>, <43 IRQ_TYPE_LEVEL_HIGH>,
+				     <44 IRQ_TYPE_LEVEL_HIGH>, <45 IRQ_TYPE_LEVEL_HIGH>,
+				     <46 IRQ_TYPE_LEVEL_HIGH>, <47 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&mm_clk BL808_MM_PBCLK>;
+			clock-names = "bus";
+			resets = <&mm_clk BL808_MM_RST_DMA2>;
+			#dma-cells = <1>;
+			dma-channels = <8>;
+			status = "disabled";
+		};
+
 		uart3: serial@30002000 {
 			compatible = "bflb,uart";
 			reg = <0x30002000 0x1000>;
@@ -90,6 +105,8 @@
 			clocks = <&mm_clk BL808_MM_PBCLK>, <&mm_clk BL808_MM_UART3>;
 			clock-names = "apb", "baud";
 			resets = <&mm_clk BL808_MM_RST_UART3>;
+			dmas = <&dma2 0>, <&dma2 1>;
+			dma-names = "rx", "tx";
 			status = "disabled";
 		};
 

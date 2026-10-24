@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/dma/bflb,bl808-dma2.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Bouffalo Lab BL808 multimedia DMA2 controller
+
+maintainers:
+  - Kwanghoon Son <asdfkwang@gmail.com>
+
+description: |
+  DMA2 has eight independent channels and linked descriptors. Each channel has
+  a dedicated interrupt. The DMA specifier selects the peripheral request:
+  UART3 RX/TX are 0/1, SPI1 RX/TX are 2/3, I2C2 RX/TX are 6/7, I2C3 RX/TX
+  are 8/9, DSI RX/TX are 10/11, and DBI TX is 22. Channel allocation is dynamic.
+
+allOf:
+  - $ref: dma-controller.yaml#
+
+properties:
+  compatible:
+    const: bflb,bl808-dma2
+  reg:
+    maxItems: 1
+  interrupts:
+    minItems: 8
+    maxItems: 8
+  clocks:
+    maxItems: 1
+  clock-names:
+    const: bus
+  resets:
+    maxItems: 1
+  '#dma-cells':
+    const: 1
+  dma-channels:
+    const: 8
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - clocks
+  - clock-names
+  - resets
+  - '#dma-cells'
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    dma-controller@30001000 {
+        compatible = "bflb,bl808-dma2";
+        reg = <0x30001000 0x1000>;
+        interrupts = <40 IRQ_TYPE_LEVEL_HIGH>, <41 IRQ_TYPE_LEVEL_HIGH>,
+                     <42 IRQ_TYPE_LEVEL_HIGH>, <43 IRQ_TYPE_LEVEL_HIGH>,
+                     <44 IRQ_TYPE_LEVEL_HIGH>, <45 IRQ_TYPE_LEVEL_HIGH>,
+                     <46 IRQ_TYPE_LEVEL_HIGH>, <47 IRQ_TYPE_LEVEL_HIGH>;
+        clocks = <&mm_clk 1>;
+        clock-names = "bus";
+        resets = <&mm_clk 1>;
+        #dma-cells = <1>;
+        dma-channels = <8>;
+    };

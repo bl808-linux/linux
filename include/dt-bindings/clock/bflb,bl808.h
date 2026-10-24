@@ -10,5 +10,6 @@
 #define BL808_MM_UART3	2
 
 #define BL808_MM_RST_UART3	0
+#define BL808_MM_RST_DMA2	1
 
 #endif

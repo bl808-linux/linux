@@ -13,7 +13,7 @@ description: |
   Firmware owns and configures the shared PLL roots. Linux reads their
   configuration without retuning or gating them. The GLB multimedia muxes
   select divided PLL outputs. MM_GLB provides the multimedia peripheral
-  bus and UART clocks, and the UART peripheral reset.
+  bus and UART clocks, and the UART and multimedia DMA resets.
 
 properties:
   compatible:

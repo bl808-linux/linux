@@ -307,6 +307,8 @@ impl<'bound, T: Operations + 'bound> Port<'bound, T> {
         let port = unsafe { Self::from_raw(ptr) };
         let result = (|| {
             port.data.quiesce(port);
+            // SAFETY: Serial core provides live TTY state. No IRQ producer is active yet.
+            to_result(unsafe { bindings::uart_prepare_receive(ptr) })?;
             // SAFETY: Port::new requires an IRQ belonging to device. No registration exists
             // before startup, and serial core serializes startup and shutdown.
             let request = unsafe { irq::IrqRequest::new(port.device, port.irq_number) };

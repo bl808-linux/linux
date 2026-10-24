@@ -10,6 +10,7 @@ struct tty_ldisc;
 int tty_buffer_set_limit(struct tty_port *port, int limit);
 unsigned int tty_buffer_space_avail(struct tty_port *port);
 int tty_buffer_request_room(struct tty_port *port, size_t size);
+int tty_buffer_prealloc(struct tty_port *port, size_t size);
 size_t __tty_insert_flip_string_flags(struct tty_port *port, const u8 *chars,
 				      const u8 *flags, bool mutable_flags,
 				      size_t size);

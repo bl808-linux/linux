@@ -216,6 +216,42 @@ static void tty_buffer_free(struct tty_port *port, struct tty_buffer *b)
 }
 
 /**
+ * tty_buffer_prealloc - reserve reusable flip buffers before enabling input
+ * @port: tty port owning the buffers
+ * @size: minimum character capacity to reserve
+ *
+ * A sole producer may call this before enabling reception to avoid allocator
+ * latency while receiving a continuous stream into a small hardware FIFO.
+ * Buffers use the normal small-buffer free list and are freed with the port.
+ * On failure, any buffers already allocated remain available on that list.
+ *
+ * Return: 0 on success, or -ENOMEM if the requested capacity is unavailable.
+ */
+int tty_buffer_prealloc(struct tty_port *port, size_t size)
+{
+	struct tty_buffer *buffers = NULL, *next, *buffer;
+	int ret = 0;
+
+	while (size) {
+		buffer = tty_buffer_alloc(port, MIN_TTYB_SIZE);
+		if (!buffer) {
+			ret = -ENOMEM;
+			break;
+		}
+		buffer->next = buffers;
+		buffers = buffer;
+		size -= min_t(size_t, size, MIN_TTYB_SIZE);
+	}
+	while (buffers) {
+		next = buffers->next;
+		tty_buffer_free(port, buffers);
+		buffers = next;
+	}
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tty_buffer_prealloc);
+
+/**
  * tty_buffer_flush		-	flush full tty buffers
  * @tty: tty to flush
  * @ld: optional ldisc ptr (must be referenced)

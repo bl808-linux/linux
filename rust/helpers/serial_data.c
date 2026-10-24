@@ -51,3 +51,9 @@ int rust_helper_tty_insert_flip_char(struct tty_port *port, unsigned char ch,
 {
 	return tty_insert_flip_char(port, ch, flag);
 }
+
+__rust_helper
+int rust_helper_uart_prepare_receive(struct uart_port *port)
+{
+	return tty_buffer_prealloc(&port->state->port, 8192);
+}

@@ -29,6 +29,7 @@ config RUST_SERIAL_ABSTRACTIONS
 config SERIAL_BFLB_RUST
 	tristate "Bouffalo Lab serial port support in Rust"
 	depends on RUST && OF && COMMON_CLK && HAS_IOMEM
+	depends on SERIAL_8250=n
 	select RUST_SERIAL_ABSTRACTIONS
 	help
 	  Interrupt-driven two-wire UART support for the Bouffalo Lab BL808.

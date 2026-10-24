@@ -2,19 +2,21 @@
 // Copyright (C) 2026 Kwanghoon Son <asdfkwang@gmail.com>
 // Based on bflb_uart.c, Copyright (C) 2022 Jisheng Zhang <jszhang@kernel.org>.
 
-//! IRQ-driven Bouffalo Lab UART, initially validated on BL808 UART3.
+//! IRQ-driven Bouffalo Lab UART, initially targeting BL808 UART3.
 
 use kernel::{
     bindings,
     clk::Clk,
     device::{Bound, Core, Device},
     driver,
-    io::{mem::ExclusiveIoMem, Io, IoBase},
+    io::{mem::ExclusiveIoMem, Io, IoBackend, IoBase, MmioBackend},
     irq, of, platform,
     prelude::*,
     serial::{self, LockedPort, Port, Termios},
     sync::Arc,
 };
+
+use core::sync::atomic::{AtomicU32, Ordering};
 
 const UTX_CONFIG: usize = 0x00;
 const URX_CONFIG: usize = 0x04;
@@ -56,7 +58,12 @@ impl SerialOwner {
         // SAFETY: Module init runs once per load, before any access to SERIAL.
         unsafe { SERIAL.init() };
         *SERIAL.lock() = Some(Arc::pin_init(
-            serial::Driver::new(c"bflb_uart", c"ttyS", 4, module),
+            serial::Driver::new(
+                c"bflb_uart",
+                c"ttyS",
+                4,
+                module,
+            ),
             GFP_KERNEL,
         )?);
         Ok(Self)
@@ -145,6 +152,7 @@ impl platform::Driver for Uart {
                     Ok(Hardware {
                         io,
                         clock,
+                        rx_pending: AtomicU32::new(0),
                         _baud: baud,
                         _apb: apb,
                         _reset: reset,
@@ -174,6 +182,7 @@ impl Drop for EnabledClock {
 struct Hardware<'bound> {
     io: ExclusiveIoMem<'bound, 0x90>,
     clock: u32,
+    rx_pending: AtomicU32,
     _baud: EnabledClock,
     _apb: EnabledClock,
     _reset: kernel::reset::OptionalReset,
@@ -192,30 +201,35 @@ impl Hardware<'_> {
 
     fn receive(&self, port: &LockedPort<'_>, status: u32) {
         let fifo = self.read::<FIFO_CONFIG0>();
-        let mut parity = status & RX_PARITY != 0;
+        let parity = status & RX_PARITY != 0;
         if parity {
             port.parity_error();
         }
         if fifo & RX_OVERFLOW != 0 {
             port.overrun(port.ignore_mask() & RX_ERROR == 0);
         }
-        // Bound the hard-IRQ work; a still-nonempty FIFO keeps the level interrupt asserted.
-        let mut budget = 256;
-        let mut bytes = [0u8; 32];
-        while budget != 0 {
+        // Drain first, then hand one batch to TTY. Calling into TTY for each
+        // newly arrived byte can keep this hard IRQ running across an entire stream.
+        let mut bytes = [0u8; 256];
+        let mut used = 0;
+        while used < bytes.len() {
             let count = ((self.read::<FIFO_CONFIG1>() >> 8) & 0x3f)
                 .min(32)
-                .min(budget) as usize;
+                .min((bytes.len() - used) as u32) as usize;
             if count == 0 {
                 break;
             }
-            for byte in &mut bytes[..count] {
-                *byte = self.read::<FIFO_RDATA>() as u8;
-            }
-            budget -= count as u32;
+            let address = MmioBackend::as_ptr(self.io.as_view())
+                .cast::<u8>()
+                .wrapping_add(FIFO_RDATA);
+            // SAFETY: The FIFO register lies within the exclusive mapping. The
+            // destination has count writable bytes and repeated I/O holds the
+            // device address fixed. The SDK uses byte-wide FIFO data accesses.
+            unsafe { bindings::io_read8_fifo(address.cast(), bytes[used..].as_mut_ptr(), count) };
+            used += count;
+        }
+        if used != 0 {
             if parity {
-                // The hardware latches parity for the FIFO, without per-byte error tags.
-                // Associate it with the first recovered byte rather than inventing tags.
                 let flag = if port.read_mask() & RX_PARITY != 0 {
                     bindings::TTY_PARITY as u8
                 } else {
@@ -226,17 +240,24 @@ impl Hardware<'_> {
                 } else {
                     port.receive(&bytes[..1], flag);
                 }
-                port.receive(&bytes[1..count], bindings::TTY_NORMAL as u8);
-                parity = false;
+                port.receive(&bytes[1..used], bindings::TTY_NORMAL as u8);
             } else {
-                port.receive(&bytes[..count], bindings::TTY_NORMAL as u8);
+                port.receive(&bytes[..used], bindings::TTY_NORMAL as u8);
             }
         }
         if fifo & (RX_OVERFLOW | RX_UNDERFLOW) != 0 {
             // Salvage queued bytes before clearing FIFO error latches. Never reset TX here.
             self.write::<FIFO_CONFIG0>((fifo & !(1 << 2)) | RX_CLEAR);
         }
-        port.push();
+        // Coalesce TTY work during continuous RX. Small packets are delivered
+        // by RX timeout, so a short read cannot wait for the batch threshold.
+        let pending = self.rx_pending.load(Ordering::Relaxed) + used as u32;
+        if pending >= 256 || status & (RX_TIMEOUT | RX_PARITY | RX_ERROR) != 0 {
+            self.rx_pending.store(0, Ordering::Relaxed);
+            port.push();
+        } else {
+            self.rx_pending.store(pending, Ordering::Relaxed);
+        }
     }
 }
 
@@ -263,9 +284,12 @@ impl serial::Operations for Hardware<'_> {
         self.mask_tx();
     }
 
-    fn stop_rx(&self, _port: &LockedPort<'_>) {
+    fn stop_rx(&self, port: &LockedPort<'_>) {
         self.write::<URX_CONFIG>(self.read::<URX_CONFIG>() & !1);
         self.write::<INT_MASK>(self.read::<INT_MASK>() | RX_INTS);
+        if self.rx_pending.swap(0, Ordering::Relaxed) != 0 {
+            port.push();
+        }
     }
 
     fn quiesce(&self, port: &Port<'_, Self>) {
@@ -277,6 +301,7 @@ impl serial::Operations for Hardware<'_> {
 
     fn startup(&self, port: &Port<'_, Self>) {
         port.with_lock(|_| {
+            self.rx_pending.store(0, Ordering::Relaxed);
             self.write::<FIFO_CONFIG0>(RX_CLEAR); // Disable firmware DMA; preserve TX FIFO.
             self.write::<INT_CLEAR>(W1C);
             self.write::<DATA_CONFIG>(0);
@@ -301,6 +326,9 @@ impl serial::Operations for Hardware<'_> {
 
     fn set_termios(&self, port: &Port<'_, Self>, new: &mut Termios, old: Option<&Termios>) {
         port.with_lock(|locked| {
+            if self.rx_pending.swap(0, Ordering::Relaxed) != 0 {
+                locked.push();
+            }
             let cflag = new.cflag() & !(bindings::CMSPAR | bindings::CRTSCTS);
             new.set_cflag(cflag);
             let mut tx = (new.char_size() - 1) << 8;
@@ -358,8 +386,15 @@ impl serial::Operations for Hardware<'_> {
             self.receive(port, status);
         }
         if status & TX_FIFO != 0 {
-            port.transmit(self.read::<FIFO_CONFIG1>() & 0x3f, |ch| {
-                self.io.as_view().relaxed().write8(ch, FIFO_WDATA);
+            let count = (self.read::<FIFO_CONFIG1>() & 0x3f).min(32) as usize;
+            let mut bytes = [0u8; 32];
+            let fifo = MmioBackend::as_ptr(self.io.as_view())
+                .cast::<u8>()
+                .wrapping_add(FIFO_WDATA);
+            port.transmit(&mut bytes[..count], |bytes| {
+                // SAFETY: The byte-wide FIFO register lies in the exclusive MMIO region.
+                // The batch is at most the free FIFO capacity and bytes is readable.
+                unsafe { bindings::io_write8_fifo(fifo.cast(), bytes.as_ptr(), bytes.len()) };
             });
         }
         irq::IrqReturn::Handled

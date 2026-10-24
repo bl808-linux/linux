@@ -3,6 +3,18 @@
 #include <linux/io.h>
 #include <linux/ioport.h>
 
+__rust_helper void rust_helper_io_read8_fifo(const void __iomem *addr,
+					    u8 *buffer, size_t count)
+{
+	ioread8_rep(addr, buffer, count);
+}
+
+__rust_helper void rust_helper_io_write8_fifo(void __iomem *addr,
+					    const u8 *buffer, size_t count)
+{
+	iowrite8_rep(addr, buffer, count);
+}
+
 #ifdef CONFIG_HAS_IOMEM
 __rust_helper void __iomem *rust_helper_ioremap(phys_addr_t offset, size_t size)
 {

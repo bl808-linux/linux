@@ -6,21 +6,17 @@ use super::LockedPort;
 use crate::bindings;
 
 impl LockedPort<'_> {
-    /// Services at most `limit` transmit bytes, including the priority x_char.
+    /// Moves a bounded batch from serial core into a hardware FIFO.
     ///
-    /// The sink must not sleep. Serial-core wakeups and stop_tx are handled after
-    /// the batch, following uart_port_tx_limited semantics.
-    pub fn transmit(&self, limit: u32, mut put_char: impl FnMut(u8)) {
-        // SAFETY: The port lock protects x_char, the transmit FIFO and counters. The helper
-        // checks state before touching it; the sink cannot retain a borrowed FIFO reference.
+    /// The caller supplies scratch space no larger than the hardware's free FIFO
+    /// capacity. The sink must not sleep and must consume the supplied bytes.
+    /// Priority x_char, counters, wakeups and stopping an empty queue are paired.
+    pub fn transmit(&self, buffer: &mut [u8], send: impl FnOnce(&[u8])) {
+        // SAFETY: The UART lock protects the transmit FIFO and counters. buffer is
+        // writable for its full length; the helper returns at most that length.
         unsafe {
-            let mut ch = 0;
-            for _ in 0..limit {
-                if !bindings::uart_tx_next(self.raw, &mut ch) {
-                    break;
-                }
-                put_char(ch);
-            }
+            let count = bindings::uart_tx_fill(self.raw, buffer.as_mut_ptr(), buffer.len());
+            send(&buffer[..count]);
             bindings::uart_tx_finish(self.raw);
         }
     }

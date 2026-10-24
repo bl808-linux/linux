@@ -4,17 +4,25 @@
 #include <linux/tty_flip.h>
 
 __rust_helper
-bool rust_helper_uart_tx_next(struct uart_port *port, unsigned char *ch)
+size_t rust_helper_uart_tx_fill(struct uart_port *port, unsigned char *bytes,
+			       size_t limit)
 {
+	size_t count = 0;
+
 	if (!port->state)
-		return false;
-	if (port->x_char) {
-		*ch = port->x_char;
-		port->x_char = 0;
-		port->icount.tx++;
-		return true;
+		return 0;
+	while (count < limit) {
+		if (port->x_char) {
+			bytes[count++] = port->x_char;
+			port->x_char = 0;
+			port->icount.tx++;
+		} else if (!uart_tx_stopped(port) && uart_fifo_get(port, &bytes[count])) {
+			count++;
+		} else {
+			break;
+		}
 	}
-	return !uart_tx_stopped(port) && uart_fifo_get(port, ch);
+	return count;
 }
 
 __rust_helper

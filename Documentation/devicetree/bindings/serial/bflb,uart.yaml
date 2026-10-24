@@ -37,6 +37,18 @@ properties:
       - const: apb
       - const: baud
 
+  dmas:
+    minItems: 1
+    items:
+      - description: Receive DMA channel
+      - description: Transmit DMA channel
+
+  dma-names:
+    minItems: 1
+    items:
+      - const: rx
+      - const: tx
+
   resets:
     maxItems: 1
 
@@ -46,6 +58,10 @@ required:
   - interrupts
   - clocks
   - clock-names
+
+dependentRequired:
+  dmas: [dma-names]
+  dma-names: [dmas]
 
 unevaluatedProperties: false
 

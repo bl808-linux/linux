@@ -57,6 +57,17 @@ config DMA_OF
 	select DMA_ENGINE
 
 #devices
+config BL808_DMA
+	tristate "Bouffalo Lab BL808 multimedia DMA2"
+	depends on OF && COMMON_CLK && RESET_CONTROLLER && HAS_IOMEM
+	select DMA_ENGINE
+	select DMA_VIRTUAL_CHANNELS
+	select DMA_OF
+	help
+	  DMAengine support for the eight multimedia DMA2 channels. Initial
+	  slave transfers use byte-wide single requests, including UART3 RX/TX.
+	  Cyclic linked lists keep receiving while the CPU services other IRQs.
+
 config ALTERA_MSGDMA
 	tristate "Altera / Intel mSGDMA Engine"
 	depends on HAS_IOMEM

@@ -92,3 +92,5 @@ obj-y += qcom/
 obj-y += stm32/
 obj-y += ti/
 obj-y += xilinx/
+
+obj-$(CONFIG_BL808_DMA) += bl808-dma.o

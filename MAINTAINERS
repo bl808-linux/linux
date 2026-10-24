@@ -4842,6 +4842,13 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/iio/imu/bosch,bmi323.yaml
 F:	drivers/iio/imu/bmi323/
 
+BOUFFALO LAB BL808 DMA2 DRIVER
+M:	Kwanghoon Son <asdfkwang@gmail.com>
+L:	dmaengine@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/dma/bflb,bl808-dma2.yaml
+F:	drivers/dma/bl808-dma.c
+
 BOUFFALO LAB BL808 PLATFORM
 M:	Kwanghoon Son <asdfkwang@gmail.com>
 L:	linux-riscv@lists.infradead.org

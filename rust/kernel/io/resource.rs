@@ -25,9 +25,12 @@ pub use super::{
 ///
 /// # Invariants
 ///
-/// - `self.0` points to a valid `bindings::resource` that was obtained through
+/// - `self.resource` points to a valid `bindings::resource` that was obtained through
 ///   `bindings::__request_region`.
-pub struct Region {
+/// - `self.parent` remains valid until the allocated resource is released.
+pub struct Region<'a> {
+    /// Parent used for both acquisition and release.
+    parent: &'a Resource,
     /// The resource returned when the region was requested.
     resource: NonNull<bindings::resource>,
     /// The name that was passed in when the region was requested. We need to
@@ -35,7 +38,7 @@ pub struct Region {
     _name: CString,
 }
 
-impl Deref for Region {
+impl Deref for Region<'_> {
     type Target = Resource;
 
     fn deref(&self) -> &Self::Target {
@@ -44,31 +47,27 @@ impl Deref for Region {
     }
 }
 
-impl Drop for Region {
+impl Drop for Region<'_> {
     fn drop(&mut self) {
-        let (flags, start, size) = {
+        let (start, size) = {
             let res = &**self;
-            (res.flags(), res.start(), res.size())
+            (res.start(), res.size())
         };
 
-        let release_fn = if flags.contains(Flags::IORESOURCE_MEM) {
-            bindings::release_mem_region
-        } else {
-            bindings::release_region
-        };
-
-        // SAFETY: Safe as per the invariant of `Region`.
-        unsafe { release_fn(start, size.into_raw()) };
+        // SAFETY: The parent borrow outlives this region. Release through the
+        // same parent that was supplied to __request_region, including parents
+        // which are not linked into the global I/O resource trees.
+        unsafe { bindings::__release_region(self.parent.0.get(), start, size.into_raw()) };
     }
 }
 
 // SAFETY: `Region` only holds a pointer to a C `struct resource`, which is safe to be used from
 // any thread.
-unsafe impl Send for Region {}
+unsafe impl Send for Region<'_> {}
 
 // SAFETY: `Region` only holds a pointer to a C `struct resource`, references to which are
 // safe to be used from any thread.
-unsafe impl Sync for Region {}
+unsafe impl Sync for Region<'_> {}
 
 /// A resource abstraction.
 ///
@@ -79,6 +78,14 @@ unsafe impl Sync for Region {}
 pub struct Resource(Opaque<bindings::resource>);
 
 impl Resource {
+    /// Global I/O memory resource root, whose lifetime is owned by C.
+    pub(crate) fn iomem() -> &'static Self {
+        // SAFETY: iomem_resource is a permanent C resource. The transparent
+        // wrapper uses Opaque interior mutability, and resource-tree updates
+        // are serialized by the C resource API.
+        unsafe { Self::from_raw(&raw mut bindings::iomem_resource) }
+    }
+
     /// Creates a reference to a [`Resource`] from a valid pointer.
     ///
     /// # Safety
@@ -104,7 +111,7 @@ impl Resource {
         size: ResourceSize,
         name: CString,
         flags: Flags,
-    ) -> Option<Region> {
+    ) -> Option<Region<'_>> {
         // SAFETY:
         // - Safe as per the invariant of `Resource`.
         // - `__request_region` will store a reference to the name, but that is
@@ -121,6 +128,7 @@ impl Resource {
         };
 
         Some(Region {
+            parent: self,
             resource: NonNull::new(region)?,
             _name: name,
         })

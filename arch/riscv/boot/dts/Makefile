@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0
 subdir-y += allwinner
+subdir-y += bouffalolab
 subdir-y += andes
 subdir-y += anlogic
 subdir-y += canaan

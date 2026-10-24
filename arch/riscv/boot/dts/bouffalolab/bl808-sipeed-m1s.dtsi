@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/* Copyright (C) 2022 Jisheng Zhang <jszhang@kernel.org> */
+
+#include "bl808.dtsi"
+
+/ {
+	compatible = "sipeed,m1s", "bflb,bl808";
+
+	/* Firmware may narrow this range or reserve memory for the other cores. */
+	memory@50000000 {
+		device_type = "memory";
+		reg = <0x50000000 0x04000000>;
+	};
+
+	cpus {
+		/* D0 firmware: 320 MHz CPU clock divided by 380 for TIME. */
+		timebase-frequency = <842105>;
+	};
+};
+
+&xtal {
+	clock-frequency = <40000000>;
+};

@@ -17,3 +17,7 @@
 		stdout-path = "serial3:2000000n8";
 	};
 };
+
+&uart3 {
+	status = "okay";
+};

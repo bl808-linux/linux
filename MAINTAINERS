@@ -4842,6 +4842,16 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/iio/imu/bosch,bmi323.yaml
 F:	drivers/iio/imu/bmi323/
 
+BOUFFALO LAB BL808 PLATFORM
+M:	Kwanghoon Son <asdfkwang@gmail.com>
+L:	linux-riscv@lists.infradead.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/clock/bflb,bl808-clock.yaml
+F:	Documentation/devicetree/bindings/riscv/bflb.yaml
+F:	arch/riscv/boot/dts/bouffalolab/
+F:	drivers/clk/clk-bl808.c
+F:	include/dt-bindings/clock/bflb,bl808.h
+
 BPF JIT for ARC
 M:	Shahab Vahedi <list+bpf@vahedi.org>
 L:	bpf@vger.kernel.org

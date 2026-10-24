@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/clock/bflb,bl808-clock.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Bouffalo Lab BL808 firmware PLL and multimedia clocks
+
+maintainers:
+  - Kwanghoon Son <asdfkwang@gmail.com>
+
+description: |
+  Firmware owns and configures the shared PLL roots. Linux reads their
+  configuration without retuning or gating them. The GLB multimedia muxes
+  select divided PLL outputs. MM_GLB provides the multimedia peripheral
+  bus and UART clocks, and the UART peripheral reset.
+
+properties:
+  compatible:
+    enum:
+      - bflb,bl808-cpu-pll
+      - bflb,bl808-wifi-pll
+      - bflb,bl808-audio-pll
+      - bflb,bl808-mm-pll-mux
+      - bflb,bl808-mm-clock
+  reg:
+    maxItems: 1
+  clocks:
+    minItems: 2
+    maxItems: 4
+  clock-names:
+    minItems: 2
+    maxItems: 4
+  '#clock-cells':
+    enum: [0, 1]
+  '#reset-cells':
+    const: 1
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+  - '#clock-cells'
+
+allOf:
+  - if:
+      properties:
+        compatible:
+          enum:
+            - bflb,bl808-cpu-pll
+            - bflb,bl808-wifi-pll
+            - bflb,bl808-audio-pll
+    then:
+      properties:
+        clocks:
+          maxItems: 2
+        clock-names:
+          items:
+            - const: xtal
+            - const: rc32m
+        '#clock-cells':
+          const: 0
+        '#reset-cells': false
+  - if:
+      properties:
+        compatible:
+          const: bflb,bl808-mm-pll-mux
+    then:
+      properties:
+        clocks:
+          minItems: 3
+          maxItems: 3
+        clock-names:
+          items:
+            - const: wifi
+            - const: cpu
+            - const: audio
+        '#clock-cells':
+          const: 1
+        '#reset-cells': false
+  - if:
+      properties:
+        compatible:
+          const: bflb,bl808-mm-clock
+    then:
+      properties:
+        clocks:
+          minItems: 4
+        clock-names:
+          items:
+            - const: xtal
+            - const: rc32m
+            - const: pll160
+            - const: pll240
+        '#clock-cells':
+          const: 1
+      required:
+        - '#reset-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/bflb,bl808.h>
+
+    clock-controller@30007000 {
+        compatible = "bflb,bl808-mm-clock";
+        reg = <0x30007000 0x100>;
+        clocks = <&xtal>, <&rc32m>,
+                 <&mm_pll BL808_MM_PLL_160M>, <&mm_pll BL808_MM_PLL_240M>;
+        clock-names = "xtal", "rc32m", "pll160", "pll240";
+        #clock-cells = <1>;
+        #reset-cells = <1>;
+    };

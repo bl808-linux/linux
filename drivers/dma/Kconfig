@@ -56,6 +56,12 @@ config DMA_OF
 	depends on OF
 	select DMA_ENGINE
 
+config RUST_DMAENGINE_ABSTRACTIONS
+	bool
+	depends on RUST && DMA_ENGINE
+	help
+	  Minimal cyclic receive support used by Rust DMAengine clients.
+
 #devices
 config BL808_DMA
 	tristate "Bouffalo Lab BL808 multimedia DMA2"

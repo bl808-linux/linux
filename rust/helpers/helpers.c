@@ -57,6 +57,9 @@
 #include "cred.c"
 #include "device.c"
 #include "dma.c"
+#ifdef CONFIG_RUST_DMAENGINE_ABSTRACTIONS
+#include "dmaengine.c"
+#endif
 #ifdef CONFIG_DMA_SHARED_BUFFER
 #include "dma-resv.c"
 #endif

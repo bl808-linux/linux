@@ -38,6 +38,10 @@ use core::{
     ptr::NonNull, //
 };
 
+/// DMAengine cyclic receive buffers.
+#[cfg(CONFIG_RUST_DMAENGINE_ABSTRACTIONS)]
+pub mod engine;
+
 /// DMA address type.
 ///
 /// Represents a bus address used for Direct Memory Access (DMA) operations.

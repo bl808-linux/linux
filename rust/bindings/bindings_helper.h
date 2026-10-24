@@ -55,6 +55,9 @@
 #include <linux/device/faux.h>
 #include <linux/dma-direction.h>
 #include <linux/dma-mapping.h>
+#ifdef CONFIG_RUST_DMAENGINE_ABSTRACTIONS
+#include <linux/dmaengine.h>
+#endif
 #include <linux/dma-resv.h>
 #include <linux/errname.h>
 #include <linux/ethtool.h>

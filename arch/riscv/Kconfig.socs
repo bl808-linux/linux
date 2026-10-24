@@ -1,5 +1,14 @@
 menu "SoC selection"
 
+config ARCH_BOUFFALOLAB
+	bool "Bouffalo Lab BL808 SoC"
+	depends on 64BIT && MMU
+	select ERRATA_THEAD
+	select COMMON_CLK
+	select RESET_CONTROLLER
+	help
+	  Enable the BL808 D0 application processor and its UART clock path.
+
 config ARCH_ANDES
 	bool "Andes SoCs"
 	depends on MMU

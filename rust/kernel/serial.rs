@@ -194,7 +194,7 @@ pub trait Operations: Send + Sync + Sized {
     /// Masks device interrupts before installing the IRQ handler.
     fn quiesce(&self, port: &Port<'_, Self>);
     /// Initializes the hardware and enables interrupts after IRQ registration.
-    fn startup(&self, port: &Port<'_, Self>);
+    fn startup(&self, port: &Port<'_, Self>) -> Result;
     /// Masks device interrupts before synchronizing and freeing the IRQ.
     fn shutdown(&self, port: &Port<'_, Self>);
     /// Sets framing and baud rate; the implementation must acquire the UART lock.
@@ -305,6 +305,11 @@ impl<'bound, T: Operations + 'bound> Port<'bound, T> {
                 }
             },
         })
+    }
+
+    /// Borrows the hardware state for a callback whose port lifetime is known.
+    pub fn data(&self) -> &T {
+        &self.data
     }
 
     /// Runs a closure with the serial-core UART lock held and local IRQs saved.
@@ -475,7 +480,11 @@ impl<'bound, T: Operations + 'bound> Port<'bound, T> {
                 )
             };
             *port.irq.lock() = Some(KBox::pin_init(registration, GFP_KERNEL)?);
-            port.data.startup(port);
+            if let Err(error) = port.data.startup(port) {
+                port.data.shutdown(port);
+                drop(port.irq.lock().take());
+                return Err(error);
+            }
             Ok(0)
         })();
         result.unwrap_or_else(|e: Error| e.to_errno())

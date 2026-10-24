@@ -34,8 +34,17 @@ config SERIAL_BFLB_RUST
 	help
 	  Interrupt-driven two-wire UART support for the Bouffalo Lab BL808.
 	  Ports appear as /dev/ttySn using the device tree serial aliases.
-	  DMA and hardware flow control are not supported.
+	  Hardware flow control is not supported; receive DMA is optional.
 	  To build a module, choose M here; it will be called bflb_uart.
+
+config SERIAL_BFLB_RUST_DMA
+	bool "DMA receive for the Bouffalo Lab Rust UART"
+	depends on SERIAL_BFLB_RUST && DMA_ENGINE
+	select RUST_DMAENGINE_ABSTRACTIONS
+	help
+	  Use the optional rx DMA channel described by the device tree. Cyclic
+	  coherent buffers absorb CPU interrupt latency during continuous input.
+	  Ports without an rx DMA channel retain the PIO receive path.
 
 config SERIAL_BFLB_RUST_CONSOLE
 	bool "Console on the Bouffalo Lab Rust serial driver"

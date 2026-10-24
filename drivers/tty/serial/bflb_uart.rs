@@ -16,7 +16,11 @@ use kernel::{
     sync::Arc,
 };
 
+#[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+use core::sync::atomic::{AtomicBool, AtomicUsize};
 use core::sync::atomic::{AtomicU32, Ordering};
+#[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+use kernel::dma::engine::CyclicRx;
 
 const UTX_CONFIG: usize = 0x00;
 const URX_CONFIG: usize = 0x04;
@@ -45,6 +49,7 @@ const W1C: u32 = (1 << 0) | (1 << 1) | RX_TIMEOUT | RX_PARITY | (1 << 8);
 const RX_OVERFLOW: u32 = 1 << 6;
 const RX_UNDERFLOW: u32 = 1 << 7;
 const RX_CLEAR: u32 = 1 << 3;
+const RX_DMA: u32 = 1 << 1;
 
 kernel::sync::global_lock! {
     // SAFETY: Initialized once in module init, before registering the platform driver.
@@ -137,6 +142,14 @@ impl platform::Driver for Uart {
             let reset = kernel::reset::OptionalReset::get_exclusive(dev)?;
             // Do not pulse reset: firmware may be using the UART for early output.
             reset.deassert()?;
+            #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+            // SAFETY: The DMA2 provider has an MMIO-reset termination fallback,
+            // and the managed consumer link keeps it bound until port teardown.
+            let rx_dma = unsafe { CyclicRx::request_optional(dev, c"rx", 16384, 512) }?;
+            #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+            if rx_dma.is_some() {
+                pr_info!("UART3 RX DMA: 16384-byte cyclic buffer, 512-byte periods\n");
+            }
             let serial = SERIAL.lock().as_ref().ok_or(ENODEV)?.clone();
             // SAFETY: irq was obtained from pdev. Platform core owns the resulting pinned
             // port and drops it before releasing the device's bound lifetime and resources.
@@ -155,6 +168,14 @@ impl platform::Driver for Uart {
                         io,
                         clock,
                         rx_pending: AtomicU32::new(0),
+                        #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+                        rx_dma,
+                        #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+                        dma_source: mapbase + FIFO_RDATA as u64,
+                        #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+                        dma_read: AtomicUsize::new(0),
+                        #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+                        dma_failed: AtomicBool::new(false),
                         _baud: baud,
                         _apb: apb,
                         _reset: reset,
@@ -185,12 +206,83 @@ struct Hardware<'bound> {
     io: ExclusiveIoMem<'bound, 0x90>,
     clock: u32,
     rx_pending: AtomicU32,
+    #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+    rx_dma: Option<CyclicRx<'bound>>,
+    #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+    dma_source: bindings::dma_addr_t,
+    #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+    dma_read: AtomicUsize,
+    #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+    dma_failed: AtomicBool,
     _baud: EnabledClock,
     _apb: EnabledClock,
     _reset: kernel::reset::OptionalReset,
 }
 
 impl Hardware<'_> {
+    fn dma_enabled(&self) -> bool {
+        #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+        {
+            self.rx_dma.is_some()
+        }
+        #[cfg(not(CONFIG_SERIAL_BFLB_RUST_DMA))]
+        {
+            false
+        }
+    }
+
+    #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+    unsafe extern "C" fn dma_complete(context: *mut kernel::ffi::c_void) {
+        // SAFETY: startup publishes a pinned Port; shutdown joins callbacks
+        // outside its lock before serial core or platform core may release it.
+        let port = unsafe { &*context.cast::<Port<'_, Hardware<'_>>>() };
+        port.with_lock(|locked| port.data().receive_dma(locked));
+    }
+
+    #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+    fn fail_dma(&self) {
+        self.dma_failed.store(true, Ordering::Relaxed);
+        self.write::<URX_CONFIG>(self.read::<URX_CONFIG>() & !1);
+        self.write::<FIFO_CONFIG0>(self.read::<FIFO_CONFIG0>() & !RX_DMA);
+        self.write::<INT_MASK>(self.read::<INT_MASK>() | RX_INTS);
+    }
+
+    #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+    fn receive_dma(&self, port: &LockedPort<'_>) {
+        let Some(dma) = self.rx_dma.as_ref() else {
+            return;
+        };
+        if self.dma_failed.load(Ordering::Relaxed) {
+            return;
+        }
+        let position = match dma.position() {
+            Ok(position) => position,
+            Err(_) => {
+                self.fail_dma();
+                port.buffer_overrun(1);
+                return;
+            }
+        };
+        let mut offset = self.dma_read.load(Ordering::Relaxed);
+        let mut remaining = (position + dma.len() - offset) % dma.len();
+        let mut bytes = [0u8; 256];
+        let received = remaining;
+        while remaining != 0 {
+            let count = remaining.min(bytes.len()).min(dma.len() - offset);
+            // SAFETY: DMA progress published this contiguous range. Copying in
+            // bounded chunks under the port lock completes well before a ring
+            // wrap; DMA2 also detects missed complete rings at its period IRQ.
+            unsafe { dma.read_completed(offset, &mut bytes[..count]) };
+            port.receive(&bytes[..count], bindings::TTY_NORMAL as u8);
+            offset = (offset + count) % dma.len();
+            remaining -= count;
+        }
+        self.dma_read.store(offset, Ordering::Relaxed);
+        if received != 0 {
+            port.push();
+        }
+    }
+
     #[cfg(CONFIG_SERIAL_BFLB_RUST_CONSOLE)]
     fn console_poll(&self, ready: impl Fn() -> bool) -> bool {
         // Bound every wait, including a failed/stopped peripheral during a panic.
@@ -353,21 +445,49 @@ impl serial::Operations for Hardware<'_> {
         });
     }
 
-    fn startup(&self, port: &Port<'_, Self>) {
+    fn startup(&self, port: &Port<'_, Self>) -> Result {
         port.with_lock(|_| {
             self.rx_pending.store(0, Ordering::Relaxed);
-            self.write::<FIFO_CONFIG0>(RX_CLEAR); // Disable firmware DMA; preserve TX FIFO.
+            self.write::<URX_CONFIG>(self.read::<URX_CONFIG>() & !1);
+            self.write::<FIFO_CONFIG0>(RX_CLEAR); // Preserve TX; disable firmware DMA.
             self.write::<INT_CLEAR>(W1C);
             self.write::<DATA_CONFIG>(0);
             self.write::<SW_MODE>(0);
             self.write::<RTO_TIMER>(0x4f);
             let fifo = self.read::<FIFO_CONFIG1>() & !((0x1f << 24) | (0x1f << 16));
-            self.write::<FIFO_CONFIG1>(fifo | (7 << 24) | (15 << 16));
+            let threshold = if self.dma_enabled() { 0 } else { 7 };
+            self.write::<FIFO_CONFIG1>(fifo | (threshold << 24) | (15 << 16));
+        });
+        #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+        if let Some(dma) = self.rx_dma.as_ref() {
+            self.dma_read.store(0, Ordering::Relaxed);
+            self.dma_failed.store(false, Ordering::Relaxed);
+            // The DMA source is the physical UART FIFO, not the CPU's I/O VA.
+            // SAFETY: Port is pinned, callbacks stop in shutdown, and UART
+            // requests are disabled until the final initialization block.
+            unsafe {
+                dma.start(
+                    self.dma_source,
+                    Self::dma_complete,
+                    (port as *const Port<'_, Self>).cast_mut().cast(),
+                )?;
+            }
+        }
+        port.with_lock(|_| {
+            let receive = if self.dma_enabled() {
+                RX_INTS & !RX_FIFO
+            } else {
+                RX_INTS
+            };
+            if self.dma_enabled() {
+                self.write::<FIFO_CONFIG0>(RX_DMA);
+            }
             self.write::<INT_EN>(RX_INTS | TX_FIFO);
-            self.write::<INT_MASK>(!RX_INTS);
+            self.write::<INT_MASK>(!receive);
             self.write::<UTX_CONFIG>(self.read::<UTX_CONFIG>() | 1);
             self.write::<URX_CONFIG>(self.read::<URX_CONFIG>() | 1);
         });
+        Ok(())
     }
 
     fn shutdown(&self, port: &Port<'_, Self>) {
@@ -375,7 +495,14 @@ impl serial::Operations for Hardware<'_> {
             self.write::<INT_MASK>(u32::MAX);
             self.write::<INT_EN>(0);
             self.write::<URX_CONFIG>(self.read::<URX_CONFIG>() & !1);
+            self.write::<FIFO_CONFIG0>(self.read::<FIFO_CONFIG0>() & !RX_DMA);
         });
+        #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+        if let Some(dma) = self.rx_dma.as_ref() {
+            // SAFETY: Serial core serializes startup/shutdown. The callback's
+            // UART lock is released before synchronizing the provider tasklet.
+            assert!(unsafe { dma.stop() }.is_ok(), "RX DMA termination failed");
+        }
     }
 
     fn set_termios(&self, port: &Port<'_, Self>, new: &mut Termios, old: Option<&Termios>) {
@@ -437,7 +564,22 @@ impl serial::Operations for Hardware<'_> {
         }
         self.write::<INT_CLEAR>(status & W1C);
         if status & RX_INTS != 0 {
-            self.receive(port, status);
+            if self.dma_enabled() {
+                if status & RX_PARITY != 0 {
+                    port.parity_error();
+                }
+                if self.read::<FIFO_CONFIG0>() & RX_OVERFLOW != 0 {
+                    port.overrun(port.ignore_mask() & RX_ERROR == 0);
+                    // An overflow already lost bytes. Quiesce RX, including its
+                    // level error source, until a fresh open resets the FIFO.
+                    #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+                    self.fail_dma();
+                }
+                #[cfg(CONFIG_SERIAL_BFLB_RUST_DMA)]
+                self.receive_dma(port);
+            } else {
+                self.receive(port, status);
+            }
         }
         if status & TX_FIFO != 0 {
             let count = (self.read::<FIFO_CONFIG1>() & 0x3f).min(32) as usize;

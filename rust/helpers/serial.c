@@ -30,7 +30,7 @@ speed_t rust_helper_tty_termios_baud_rate(const struct ktermios *termios)
 __rust_helper
 void rust_helper_uart_port_set_boot_autoconf(struct uart_port *port)
 {
-	port->flags = UPF_BOOT_AUTOCONF;
+	port->flags = UPF_BOOT_AUTOCONF | UPF_FIXED_PORT | UPF_FIXED_TYPE;
 }
 
 #ifdef CONFIG_SERIAL_CORE_CONSOLE

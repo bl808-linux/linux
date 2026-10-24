@@ -50,6 +50,14 @@ impl LockedPort<'_> {
         }
     }
 
+    /// Reports receive-buffer loss, including a failed DMA receive stream.
+    pub fn buffer_overrun(&self, count: u32) {
+        // SAFETY: The UART lock serializes accounting with IRQ and userspace queries.
+        unsafe {
+            (*self.raw).icount.buf_overrun = (*self.raw).icount.buf_overrun.wrapping_add(count)
+        };
+    }
+
     /// Status bits selected by termios input checking.
     pub fn read_mask(&self) -> u32 {
         // SAFETY: The UART lock protects this field.

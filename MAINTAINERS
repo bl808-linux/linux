@@ -4926,6 +4926,17 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/iio/imu/bosch,bmi323.yaml
 F:	drivers/iio/imu/bmi323/
 
+BOUFFALO LAB BL808 SUPPORT
+M:	Kwanghoon Son <asdfkwang@gmail.com>
+L:	linux-riscv@lists.infradead.org
+L:	linux-serial@vger.kernel.org
+S:	Maintained
+T:	git https://github.com/bl808-linux/linux.git
+F:	Documentation/devicetree/bindings/riscv/bouffalolab.yaml
+F:	Documentation/devicetree/bindings/serial/bouffalolab,bl808-uart.yaml
+F:	arch/riscv/boot/dts/bouffalolab/
+F:	drivers/tty/serial/bl808_uart.rs
+
 BPF JIT for ARC
 M:	Shahab Vahedi <list+bpf@vahedi.org>
 L:	bpf@vger.kernel.org
@@ -25430,6 +25441,19 @@ F:	Documentation/devicetree/bindings/slimbus/
 F:	Documentation/driver-api/slimbus.rst
 F:	drivers/slimbus/
 F:	include/linux/slimbus.h
+
+SERIAL SUBSYSTEM BINDINGS [RUST]
+M:	Kwanghoon Son <asdfkwang@gmail.com>
+L:	linux-serial@vger.kernel.org
+L:	rust-for-linux@vger.kernel.org
+S:	Maintained
+F:	rust/helpers/serial.c
+F:	rust/kernel/serial.rs
+F:	rust/kernel/serial/
+
+SERIAL SUBSYSTEM DRIVERS [RUST]
+R:	Kwanghoon Son <asdfkwang@gmail.com>
+F:	drivers/tty/serial/*.rs
 
 SFC NETWORK DRIVER
 M:	Edward Cree <ecree.xilinx@gmail.com>

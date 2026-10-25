@@ -12,6 +12,17 @@ config ARCH_ANLOGIC
 	help
 	  This enables support for Anlogic SoC platform hardware.
 
+config ARCH_BOUFFALOLAB
+	bool "Bouffalo Lab BL808 SoC"
+	depends on 64BIT && MMU
+	select ERRATA_THEAD
+	select COMMON_CLK
+	help
+	  Enable support for the BL808 D0 application processor.
+	  This is the 64-bit T-HEAD C906 core in the heterogeneous BL808.
+	  Boot firmware initializes memory and peripheral pin assignments.
+	  Initial Linux support provides a polling UART console.
+
 config ARCH_ESWIN
 	bool "ESWIN SoCs"
 	help

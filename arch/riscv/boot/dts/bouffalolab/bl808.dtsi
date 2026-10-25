@@ -1,0 +1,122 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/* Copyright (C) 2022 Jisheng Zhang <jszhang@kernel.org> */
+
+#include <dt-bindings/clock/bflb,bl808.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+
+/ {
+	compatible = "bflb,bl808";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			compatible = "thead,c906", "riscv";
+			device_type = "cpu";
+			reg = <0>;
+			mmu-type = "riscv,sv39";
+			riscv,isa = "rv64imafdc";
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c",
+					       "zicsr", "zifencei", "zicntr", "zihpm";
+
+			cpu0_intc: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				#address-cells = <0>;
+				#interrupt-cells = <1>;
+			};
+		};
+	};
+
+	xtal: clock-xtal {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+	};
+
+	rc32m: clock-rc32m {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <32000000>;
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+		interrupt-parent = <&plic>;
+		dma-noncoherent;
+
+		mm_pll: clock-controller@20000254 {
+			compatible = "bflb,bl808-mm-pll-mux";
+			reg = <0x20000254 0x4>;
+			clocks = <&wifi_pll>, <&cpu_pll>, <&audio_pll>;
+			clock-names = "wifi", "cpu", "audio";
+			#clock-cells = <1>;
+		};
+
+		wifi_pll: clock-controller@20000810 {
+			compatible = "bflb,bl808-wifi-pll";
+			reg = <0x20000810 0x24>;
+			clocks = <&xtal>, <&rc32m>;
+			clock-names = "xtal", "rc32m";
+			#clock-cells = <0>;
+		};
+
+		audio_pll: clock-controller@20008750 {
+			compatible = "bflb,bl808-audio-pll";
+			reg = <0x20008750 0x24>;
+			clocks = <&xtal>, <&rc32m>;
+			clock-names = "xtal", "rc32m";
+			#clock-cells = <0>;
+		};
+
+		cpu_pll: clock-controller@200087d0 {
+			compatible = "bflb,bl808-cpu-pll";
+			reg = <0x200087d0 0x24>;
+			clocks = <&xtal>, <&rc32m>;
+			clock-names = "xtal", "rc32m";
+			#clock-cells = <0>;
+		};
+
+		uart3: serial@30002000 {
+			compatible = "bflb,uart";
+			reg = <0x30002000 0x1000>;
+			interrupts = <20 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&mm_clk BL808_MM_PBCLK>, <&mm_clk BL808_MM_UART3>;
+			clock-names = "apb", "baud";
+			resets = <&mm_clk BL808_MM_RST_UART3>;
+			status = "disabled";
+		};
+
+		mm_clk: clock-controller@30007000 {
+			compatible = "bflb,bl808-mm-clock";
+			reg = <0x30007000 0x100>;
+			clocks = <&xtal>, <&rc32m>,
+				 <&mm_pll BL808_MM_PLL_160M>, <&mm_pll BL808_MM_PLL_240M>;
+			clock-names = "xtal", "rc32m", "pll160", "pll240";
+			#clock-cells = <1>;
+			#reset-cells = <1>;
+		};
+
+		plic: interrupt-controller@e0000000 {
+			compatible = "bflb,bl808-plic", "thead,c900-plic";
+			reg = <0xe0000000 0x04000000>;
+			interrupts-extended = <&cpu0_intc 11>, <&cpu0_intc 9>;
+			interrupt-controller;
+			#address-cells = <0>;
+			#interrupt-cells = <2>;
+			riscv,ndev = <82>;
+		};
+
+		timer@e4000000 {
+			compatible = "bflb,bl808-clint", "thead,c900-clint";
+			reg = <0xe4000000 0xc000>;
+			interrupts-extended = <&cpu0_intc 3>, <&cpu0_intc 7>;
+		};
+	};
+};

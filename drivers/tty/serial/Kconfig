@@ -26,6 +26,16 @@ config RUST_SERIAL_ABSTRACTIONS
 	help
 	  This enables Rust abstractions for the serial core API.
 
+config SERIAL_BL808_RUST
+	tristate "Bouffalo Lab BL808 UART in Rust"
+	depends on RUST && OF && COMMON_CLK && HAS_IOMEM
+	select RUST_SERIAL_ABSTRACTIONS
+	help
+	  Support interrupt-driven TTY transmission and reception on the
+	  Bouffalo Lab BL808 UART, with polling kernel console output.
+	  Firmware must initialize clock routing, reset and pinmux.
+	  To build as a module, say M here; the module is called bl808_uart.
+
 config SERIAL_AMBA_PL010
 	tristate "ARM AMBA PL010 serial port support"
 	depends on ARM_AMBA || COMPILE_TEST

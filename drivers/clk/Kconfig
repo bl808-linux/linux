@@ -505,6 +505,18 @@ config COMMON_CLK_RPMI
 	  Support for clocks based on the clock service group defined by
 	  the RISC-V platform management interface (RPMI) specification.
 
+config COMMON_CLK_BL808
+	bool "Bouffalo Lab BL808 UART clocks"
+	depends on ARCH_BOUFFALOLAB || COMPILE_TEST
+	depends on OF
+	select RESET_CONTROLLER
+	default ARCH_BOUFFALOLAB
+	help
+	  Report firmware-configured PLL rates and provide the multimedia
+	  bus and UART clocks and UART peripheral reset. Shared roots and
+	  mux selections are never reprogrammed by this driver. The initial
+	  implementation covers the clock path needed by UART3.
+
 source "drivers/clk/actions/Kconfig"
 source "drivers/clk/analogbits/Kconfig"
 source "drivers/clk/aspeed/Kconfig"

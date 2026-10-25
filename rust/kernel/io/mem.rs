@@ -196,7 +196,7 @@ impl<'a, const SIZE: usize> ExclusiveIoMem<'a, SIZE> {
         let size = resource.size();
         let name = resource.name().unwrap_or_default();
 
-        let region = resource
+        let region = Resource::iomem()
             .request_region(
                 start,
                 size,

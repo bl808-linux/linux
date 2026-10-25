@@ -2,11 +2,39 @@
 
 //! Device Tree / Open Firmware abstractions.
 
+#[cfg(CONFIG_OF)]
+use crate::device::Device;
+
 use crate::{
     bindings,
     device_id::{RawDeviceId, RawDeviceIdIndex},
     prelude::*,
 };
+
+/// Returns the alias index for the device's OF node and the given `stem`.
+///
+/// For example, use `c"serial"` to look up the index of a `serialN` alias.
+///
+/// Returns [`ENODEV`] if the device has no OF node or no matching alias. Other
+/// errors from `of_alias_get_id()` are propagated.
+///
+/// This function may sleep.
+#[cfg(CONFIG_OF)]
+pub fn alias_id(dev: &Device, stem: &CStr) -> Result<u32> {
+    // SAFETY: `dev` is a live device, so its `of_node` field can be read.
+    let node = unsafe { (*dev.as_raw()).of_node };
+    if node.is_null() {
+        return Err(ENODEV);
+    }
+    // SAFETY: `of_alias_get_id` only compares `node` with the nodes in its alias
+    // table, and `stem` is a valid null-terminated string for this call.
+    let index = unsafe { bindings::of_alias_get_id(node, stem.as_char_ptr()) };
+    if index < 0 {
+        Err(Error::from_errno(index))
+    } else {
+        Ok(index as u32)
+    }
+}
 
 /// IdTable type for OF drivers.
 pub type IdTable<T> = &'static dyn kernel::device_id::IdTable<DeviceId, T>;

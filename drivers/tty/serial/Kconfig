@@ -27,6 +27,16 @@ config RUST_SERIAL_ABSTRACTIONS
 	  Minimal serial-core registrations and polling console callbacks for
 	  Rust UART drivers. TTY devices remain managed by C serial core.
 
+config SERIAL_BFLB_RUST
+	bool "Bouffalo Lab polling serial console in Rust"
+	depends on RUST && OF && COMMON_CLK && HAS_IOMEM
+	select RUST_SERIAL_ABSTRACTIONS
+	help
+	  Serial-core printk console for the Bouffalo Lab BL808 UART.
+	  Select console=ttyBFLB3,115200n8 or use the DT stdout-path.
+	  This initial driver supports polling printk output only. Userspace
+	  TTY I/O, RX, shell access and DMA are not supported.
+
 config SERIAL_AMBA_PL010
 	tristate "ARM AMBA PL010 serial port support"
 	depends on ARM_AMBA || COMPILE_TEST

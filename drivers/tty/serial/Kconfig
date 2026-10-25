@@ -18,6 +18,15 @@ source "drivers/tty/serial/8250/Kconfig"
 
 comment "Non-8250 serial port support"
 
+config RUST_SERIAL_ABSTRACTIONS
+	bool
+	depends on RUST
+	select SERIAL_CORE
+	select SERIAL_CORE_CONSOLE
+	help
+	  Minimal serial-core registrations and polling console callbacks for
+	  Rust UART drivers. TTY devices remain managed by C serial core.
+
 config SERIAL_AMBA_PL010
 	tristate "ARM AMBA PL010 serial port support"
 	depends on ARM_AMBA || COMPILE_TEST

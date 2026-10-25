@@ -27,6 +27,16 @@ config RUST_SERIAL_ABSTRACTIONS
 	  Minimal serial-core registrations and polling console callbacks for
 	  Rust UART drivers. TTY devices remain managed by C serial core.
 
+config RUST_SERIAL_KUNIT_TEST
+	bool "Rust serial-core registration tests" if !KUNIT_ALL_TESTS
+	depends on RUST_SERIAL_ABSTRACTIONS && KUNIT=y
+	default KUNIT_ALL_TESTS
+	help
+	  Test owned UART registration and teardown with faux parent devices.
+	  Exercise initialization failures, occupied lines and device-managed
+	  removal. Check that console removal waits for active SRCU readers
+	  before freeing callback state. No physical UART is required.
+
 config SERIAL_BFLB_RUST
 	bool "Bouffalo Lab polling serial console in Rust"
 	depends on RUST && OF && COMMON_CLK && HAS_IOMEM

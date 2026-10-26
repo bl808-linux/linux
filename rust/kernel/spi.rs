@@ -42,14 +42,20 @@ struct Registration<T: Operations> {
 unsafe impl<T: Operations> Send for Registration<T> {}
 impl<T: Operations> Drop for Registration<T> {
     fn drop(&mut self) {
-        // SAFETY: This guard owns the allocation/reference. Unregister first removes
-        // peripherals and drains queued callbacks, while state and devres are live.
+        // SAFETY: This guard owns the allocation reference. Unregister removes
+        // peripherals and drains the queue. Synchronous immediate transfers use
+        // io_mutex without setting the queue's busy flag, so also acquire that
+        // mutex before freeing callback state or hardware resources. Peripheral
+        // removal has already stopped consumers from submitting new work.
         unsafe {
             if self.registered {
                 bindings::spi_unregister_controller(self.controller);
-            } else {
-                bindings::spi_controller_put(self.controller);
+                bindings::mutex_lock(&raw mut (*self.controller).io_mutex);
+                bindings::mutex_unlock(&raw mut (*self.controller).io_mutex);
             }
+            // spi_unregister_controller() removes the device; it does not put
+            // the allocation reference obtained from spi_alloc_host().
+            bindings::spi_controller_put(self.controller);
         }
     }
 }

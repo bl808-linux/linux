@@ -590,3 +590,14 @@ config CLK_DIVIDER_KUNIT_TEST
 	  Kunit test for the clk-divider type.
 
 endif
+
+config COMMON_CLK_BL808_MM_SPI
+	bool "Bouffalo Lab BL808 SPI1 clock and reset"
+	depends on ARCH_BOUFFALOLAB || COMPILE_TEST
+	depends on OF && HAS_IOMEM
+	select RESET_CONTROLLER
+	help
+	  Say Y to provide the BL808 D0 SPI1 leaf clock and reset line.
+	  The firmware-selected crystal XCLK is used without retuning
+	  shared PLLs or the clock root used by the serial console.
+	  Only SPI1 mux, divider, gate and peripheral reset bits are owned.

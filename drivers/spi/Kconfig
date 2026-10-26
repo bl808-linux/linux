@@ -1469,3 +1469,13 @@ config SPI_OFFLOAD_TRIGGER_PWM
 endif # SPI_OFFLOAD
 
 endif # SPI
+
+config SPI_BFLB_RUST
+	bool "Bouffalo Lab BL808 SPI1 controller in Rust"
+	depends on RUST && ARCH_BOUFFALOLAB && SPI
+	depends on OF && COMMON_CLK && RESET_CONTROLLER && MFD_SYSCON
+	help
+	  Say Y to use the BL808 D0 SPI1 controller through a Rust driver.
+	  Initial support is synchronous, 8-bit, mode-0, transmit-only PIO.
+	  SPI core handles GPIO chip select and message sequencing.
+	  Transfers use bounded FIFO polling and reset recovery on failure.

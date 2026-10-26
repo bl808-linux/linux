@@ -43,6 +43,26 @@
 		interrupt-parent = <&plic>;
 		dma-noncoherent;
 
+		mcu_intc: interrupt-controller@20000050 {
+			compatible = "bflb,bl808-mcu-intc";
+			reg = <0x20000050 0x18>;
+			interrupts = <81 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			#address-cells = <0>;
+			#interrupt-cells = <2>;
+			status = "disabled";
+		};
+
+		uart2: serial@2000aa00 {
+			compatible = "bflb,uart";
+			reg = <0x2000aa00 0x100>;
+			interrupt-parent = <&mcu_intc>;
+			interrupts = <30 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&xtal>;
+			clock-names = "baud";
+			status = "disabled";
+		};
+
 		uart3: serial@30002000 {
 			compatible = "bflb,uart";
 			reg = <0x30002000 0x1000>;

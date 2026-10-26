@@ -97,6 +97,9 @@
 #include "serdev.c"
 #ifdef CONFIG_RUST_SERIAL_ABSTRACTIONS
 #include "serial.c"
+#ifdef CONFIG_SPI
+#include "spi.c"
+#endif
 #endif
 #include "signal.c"
 #include "slab.c"

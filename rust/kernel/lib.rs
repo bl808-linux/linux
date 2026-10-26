@@ -134,6 +134,8 @@ pub mod seq_file;
 pub mod serdev;
 #[cfg(CONFIG_RUST_SERIAL_ABSTRACTIONS)]
 pub mod serial;
+#[cfg(CONFIG_SPI)]
+pub mod spi;
 pub mod sizes;
 #[cfg(CONFIG_SOC_BUS)]
 pub mod soc;

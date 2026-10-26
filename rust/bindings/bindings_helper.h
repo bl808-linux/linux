@@ -173,3 +173,10 @@ const unsigned long RUST_CONST_HELPER_GPU_BUDDY_TRIM_DISABLE = GPU_BUDDY_TRIM_DI
 #include "../../drivers/android/binder/rust_binder.h"
 #include "../../drivers/android/binder/rust_binder_events.h"
 #endif
+
+#ifdef CONFIG_SPI
+#include <linux/spi/spi.h>
+#include <linux/reset.h>
+#include <linux/regmap.h>
+#include <linux/mfd/syscon.h>
+#endif

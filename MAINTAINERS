@@ -4911,6 +4911,7 @@ M:	Kwanghoon Son <asdfkwang@gmail.com>
 L:	linux-riscv@lists.infradead.org
 L:	linux-serial@vger.kernel.org
 S:	Maintained
+F:	Documentation/devicetree/bindings/interrupt-controller/bflb,bl808-mcu-intc.yaml
 F:	Documentation/devicetree/bindings/riscv/bflb.yaml
 F:	Documentation/devicetree/bindings/serial/bflb,uart.yaml
 F:	arch/riscv/boot/dts/bouffalolab/

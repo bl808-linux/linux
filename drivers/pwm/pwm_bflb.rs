@@ -155,6 +155,77 @@ struct BflbPwmDriverData {
     clk: EnabledClock,
 }
 
+fn round_waveform(rate_hz: u64, wf: &pwm::Waveform) -> Result<pwm::RoundedWaveform<BflbWfHw>> {
+    let mut status = 0;
+
+    if wf.period_length_ns == 0 {
+        return Ok(pwm::RoundedWaveform {
+            status,
+            hardware_waveform: BflbWfHw::default(),
+        });
+    }
+
+    if rate_hz == 0 {
+        return Err(EINVAL);
+    }
+
+    // Slowest representable period: 16-bit divider times 16-bit period
+    // counted at the selected clock. This check bounds every product
+    // below, for the period and for the contained duty and offset.
+    let max_period_ns = (BFLB_DIV_MAX * BFLB_DIV_MAX * NSEC64) / rate_hz.max(1);
+    if wf.period_length_ns > max_period_ns {
+        return Err(ERANGE);
+    }
+
+    // Bring the period below the 16-bit counter limit with the smallest
+    // divider that achieves it.
+    let counts_at_div1 = (wf.period_length_ns * rate_hz) / NSEC64;
+    let div = counts_at_div1.div_ceil(BFLB_DIV_MAX).max(1);
+    let period_counts = ns_to_counts(wf.period_length_ns, rate_hz, div).clamp(2, BFLB_DIV_MAX);
+    if counts_to_ns(period_counts, rate_hz, div) > wf.period_length_ns {
+        // The hardware can only run slower than requested.
+        status = 1;
+    }
+
+    let mut thre_low = 0;
+    let mut thre_high = 0;
+    if wf.duty_length_ns != 0 {
+        // The window must stay inside the period; offsets and lengths
+        // beyond it are truncated.
+        let start_ns = wf.duty_offset_ns.min(wf.period_length_ns);
+        let end_ns = wf
+            .duty_offset_ns
+            .saturating_add(wf.duty_length_ns)
+            .min(wf.period_length_ns);
+
+        thre_low = ns_to_counts(start_ns, rate_hz, div).min(period_counts);
+        if thre_low >= period_counts {
+            // The truncated window never becomes non-empty; the channel
+            // idles.
+            return Ok(pwm::RoundedWaveform {
+                status,
+                hardware_waveform: BflbWfHw::default(),
+            });
+        }
+        thre_high = ns_to_counts(end_ns, rate_hz, div)
+            .max(thre_low + 1)
+            .min(period_counts);
+    }
+
+    let wfhw = BflbWfHw {
+        div: div as u16,
+        period: period_counts as u16,
+        thre_low: thre_low as u16,
+        thre_high: thre_high as u16,
+        enabled: wf.duty_length_ns != 0,
+    };
+
+    Ok(pwm::RoundedWaveform {
+        status,
+        hardware_waveform: wfhw,
+    })
+}
+
 impl pwm::PwmOps for BflbPwmDriverData {
     type WfHw = BflbWfHw;
 
@@ -163,94 +234,7 @@ impl pwm::PwmOps for BflbPwmDriverData {
         _pwm: &pwm::Device,
         wf: &pwm::Waveform,
     ) -> Result<pwm::RoundedWaveform<Self::WfHw>> {
-        let data = chip.drvdata();
-        let rate_hz = data.clk.rate().as_hz() as u64;
-        let mut status = 0;
-
-        if wf.period_length_ns == 0 {
-            dev_dbg!(chip.device(), "Requested period is 0, disabling PWM.\n");
-
-            return Ok(pwm::RoundedWaveform {
-                status,
-                hardware_waveform: BflbWfHw::default(),
-            });
-        }
-
-        // Slowest representable period: 16-bit divider times 16-bit period
-        // counted at the selected clock. This check bounds every product
-        // below, for the period and for the contained duty and offset.
-        let max_period_ns = (BFLB_DIV_MAX * BFLB_DIV_MAX * NSEC64) / rate_hz.max(1);
-        if wf.period_length_ns > max_period_ns {
-            dev_dbg!(
-                chip.device(),
-                "Requested period {} ns exceeds the {} ns hardware limit.\n",
-                wf.period_length_ns,
-                max_period_ns
-            );
-            return Err(ERANGE);
-        }
-
-        // Bring the period below the 16-bit counter limit with the smallest
-        // divider that achieves it.
-        let counts_at_div1 = (wf.period_length_ns * rate_hz) / NSEC64;
-        let div = counts_at_div1.div_ceil(BFLB_DIV_MAX).max(1);
-        let period_counts = ns_to_counts(wf.period_length_ns, rate_hz, div).clamp(2, BFLB_DIV_MAX);
-        if counts_to_ns(period_counts, rate_hz, div) > wf.period_length_ns {
-            // The hardware can only run slower than requested.
-            status = 1;
-        }
-
-        let mut thre_low = 0;
-        let mut thre_high = 0;
-        if wf.duty_length_ns != 0 {
-            // The window must stay inside the period; offsets and lengths
-            // beyond it are truncated.
-            let start_ns = wf.duty_offset_ns.min(wf.period_length_ns);
-            let end_ns = wf
-                .duty_offset_ns
-                .saturating_add(wf.duty_length_ns)
-                .min(wf.period_length_ns);
-
-            thre_low = ns_to_counts(start_ns, rate_hz, div).min(period_counts);
-            if thre_low >= period_counts {
-                // The truncated window never becomes non-empty; the channel
-                // idles.
-                return Ok(pwm::RoundedWaveform {
-                    status,
-                    hardware_waveform: BflbWfHw::default(),
-                });
-            }
-            thre_high = ns_to_counts(end_ns, rate_hz, div)
-                .max(thre_low + 1)
-                .min(period_counts);
-        }
-
-        let wfhw = BflbWfHw {
-            div: div as u16,
-            period: period_counts as u16,
-            thre_low: thre_low as u16,
-            thre_high: thre_high as u16,
-            enabled: wf.duty_length_ns != 0,
-        };
-
-        dev_dbg!(
-            chip.device(),
-            "Requested {}/{} ns [+{}] -> HW: {}/{} counts thre {}/{} div {} rate {} Hz\n",
-            wf.duty_length_ns,
-            wf.period_length_ns,
-            wf.duty_offset_ns,
-            wfhw.thre_high - wfhw.thre_low,
-            wfhw.period,
-            wfhw.thre_low,
-            wfhw.thre_high,
-            wfhw.div,
-            rate_hz
-        );
-
-        Ok(pwm::RoundedWaveform {
-            status,
-            hardware_waveform: wfhw,
-        })
+        round_waveform(chip.drvdata().clk.rate().as_hz() as u64, wf)
     }
 
     fn round_waveform_fromhw(
@@ -421,3 +405,7 @@ kernel::module_pwm_platform_driver! {
     description: "Bouffalo Lab BL808 PWM driver",
     license: "GPL v2",
 }
+
+#[cfg(CONFIG_PWM_BFLB_KUNIT_TEST)]
+#[path = "pwm_bflb/tests.rs"]
+mod tests;

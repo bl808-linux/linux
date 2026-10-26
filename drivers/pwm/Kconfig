@@ -881,3 +881,12 @@ config PWM_XILINX
 	  allowing driver logic to be written in safe Rust.
 
 endif
+
+config PWM_BFLB_KUNIT_TEST
+	bool "Rust BL808 PWM waveform tests" if !KUNIT_ALL_TESTS
+	depends on PWM_BFLB=y && KUNIT=y
+	default KUNIT_ALL_TESTS
+	help
+	  Test the driver's actual waveform conversion and register layout without
+	  enabling PWM outputs. Cover divider/counter limits, half-up rounding,
+	  duty windows, disable and overflow handling.

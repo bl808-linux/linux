@@ -135,18 +135,24 @@ struct BflbWfHw {
 
 struct BflbPwmPlatformDriver;
 
-#[pin_data(PinnedDrop)]
+struct EnabledClock(Clk);
+impl core::ops::Deref for EnabledClock {
+    type Target = Clk;
+    fn deref(&self) -> &Clk {
+        &self.0
+    }
+}
+impl Drop for EnabledClock {
+    fn drop(&mut self) {
+        self.0.disable_unprepare();
+    }
+}
+
+#[pin_data]
 struct BflbPwmDriverData {
     #[pin]
     iomem: DevresIoMem<BFLB_PWM_REG_SIZE>,
-    clk: Clk,
-}
-
-#[pinned_drop]
-impl PinnedDrop for BflbPwmDriverData {
-    fn drop(self: Pin<&mut Self>) {
-        self.clk.disable_unprepare();
-    }
+    clk: EnabledClock,
 }
 
 impl pwm::PwmOps for BflbPwmDriverData {
@@ -187,13 +193,12 @@ impl pwm::PwmOps for BflbPwmDriverData {
         // Bring the period below the 16-bit counter limit with the smallest
         // divider that achieves it.
         let counts_at_div1 = (wf.period_length_ns * rate_hz) / NSEC64;
-        let div = (counts_at_div1 / BFLB_DIV_MAX).max(1);
-        let mut period_counts = ns_to_counts(wf.period_length_ns, rate_hz, div);
+        let div = counts_at_div1.div_ceil(BFLB_DIV_MAX).max(1);
+        let period_counts = ns_to_counts(wf.period_length_ns, rate_hz, div).clamp(2, BFLB_DIV_MAX);
         if counts_to_ns(period_counts, rate_hz, div) > wf.period_length_ns {
             // The hardware can only run slower than requested.
             status = 1;
         }
-        period_counts = period_counts.min(BFLB_DIV_MAX).max(2);
 
         let mut thre_low = 0;
         let mut thre_high = 0;
@@ -386,6 +391,7 @@ impl platform::Driver for BflbPwmPlatformDriver {
         let clk = Clk::get(dev, None)?;
 
         clk.prepare_enable()?;
+        let clk = EnabledClock(clk);
 
         let rate_hz = clk.rate().as_hz();
         if rate_hz == 0 {

@@ -63,6 +63,41 @@
 			status = "disabled";
 		};
 
+		glb: syscon@20000000 {
+			compatible = "bflb,bl808-glb", "syscon";
+			reg = <0x20000000 0x1000>;
+		};
+
+		gpio: pinctrl@200008c4 {
+			compatible = "bflb,bl808-pinctrl";
+			reg = <0x200008c4 0xb8>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+		};
+
+		mm_spi_clk: clock-controller@30007000 {
+			compatible = "bflb,bl808-mm-spi-clock";
+			reg = <0x30007000 0x1000>;
+			clocks = <&xtal>;
+			clock-names = "xtal";
+			#clock-cells = <0>;
+			#reset-cells = <1>;
+			status = "disabled";
+		};
+
+		spi1: spi@30008000 {
+			compatible = "bflb,bl808-spi";
+			reg = <0x30008000 0x1000>;
+			interrupts = <23 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&mm_spi_clk>;
+			resets = <&mm_spi_clk 0>;
+			bflb,glb = <&glb>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
 		uart3: serial@30002000 {
 			compatible = "bflb,uart";
 			reg = <0x30002000 0x1000>;

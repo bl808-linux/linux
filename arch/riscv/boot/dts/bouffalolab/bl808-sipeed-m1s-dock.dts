@@ -3,6 +3,7 @@
 /dts-v1/;
 
 #include "bl808-sipeed-m1s.dtsi"
+#include <dt-bindings/gpio/gpio.h>
 
 / {
 	model = "Sipeed M1s Dock";
@@ -10,6 +11,12 @@
 
 	aliases {
 		serial3 = &uart3;
+		spi1 = &spi1;
+	};
+
+	backlight: backlight {
+		compatible = "gpio-backlight";
+		gpios = <&gpio 11 GPIO_ACTIVE_HIGH>;
 	};
 
 	chosen {
@@ -19,4 +26,52 @@
 
 &uart3 {
 	status = "okay";
+};
+
+&gpio {
+	status = "okay";
+
+	spi1_pins: spi1-pins {
+		pins = "GPIO19", "GPIO25";
+		function = "spi1";
+		bias-disable;
+		input-schmitt-enable;
+		bflb,drive-strength = <0>;
+	};
+};
+
+&mm_spi_clk {
+	status = "okay";
+};
+
+&spi1 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi1_pins>;
+	cs-gpios = <&gpio 12 GPIO_ACTIVE_LOW>;
+
+	display@0 {
+		compatible = "sipeed,m1s-dock-lcd", "panel-mipi-dbi-spi";
+		reg = <0>;
+		spi-max-frequency = <4000000>;
+		dc-gpios = <&gpio 13 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio 24 GPIO_ACTIVE_LOW>;
+		backlight = <&backlight>;
+		write-only;
+		format = "r5g6b5";
+		width-mm = <28>;
+		height-mm = <33>;
+
+		panel-timing {
+			clock-frequency = <0>;
+			hactive = <240>;
+			vactive = <280>;
+			hback-porch = <0>;
+			vback-porch = <20>;
+			hfront-porch = <0>;
+			hsync-len = <0>;
+			vfront-porch = <0>;
+			vsync-len = <0>;
+		};
+	};
 };

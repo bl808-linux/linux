@@ -750,3 +750,17 @@ source "drivers/pinctrl/visconti/Kconfig"
 source "drivers/pinctrl/vt8500/Kconfig"
 
 endif
+
+config PINCTRL_BL808
+	bool "Bouffalo Lab BL808 pinctrl and GPIO"
+	depends on PINCTRL
+	depends on ARCH_BOUFFALOLAB || COMPILE_TEST
+	depends on OF && HAS_IOMEM
+	select PINMUX
+	select GENERIC_PINCONF
+	select GPIOLIB
+	help
+	  Say Y to enable the BL808 pin controller and GPIO input/output.
+	  Pinmux and GPIO users share serialized per-pad register access.
+	  Pull resistors, Schmitt input and hardware drive encodings can
+	  be configured without resetting other pads or inherited muxes.

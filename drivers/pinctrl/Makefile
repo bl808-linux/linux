@@ -103,3 +103,5 @@ obj-$(CONFIG_PINCTRL_ULTRARISC)	+= ultrarisc/
 obj-$(CONFIG_PINCTRL_UNIPHIER)	+= uniphier/
 obj-$(CONFIG_PINCTRL_VISCONTI)	+= visconti/
 obj-$(CONFIG_PINCTRL_WMT)	+= vt8500/
+
+obj-$(CONFIG_PINCTRL_BL808) += bflb/

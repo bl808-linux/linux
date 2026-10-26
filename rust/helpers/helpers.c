@@ -92,21 +92,27 @@
 #include "rcu.c"
 #include "refcount.c"
 #include "regulator.c"
+#ifdef CONFIG_RESET_CONTROLLER
+#include "reset.c"
+#endif
 #include "scatterlist.c"
 #include "security.c"
 #include "serdev.c"
 #ifdef CONFIG_RUST_SERIAL_ABSTRACTIONS
 #include "serial.c"
-#ifdef CONFIG_SPI
-#include "spi.c"
-#endif
 #endif
 #include "signal.c"
 #include "slab.c"
+#ifdef CONFIG_SPI
+#include "spi.c"
+#endif
 #include "spinlock.c"
 #include "string.c"
 #include "srcu.c"
 #include "sync.c"
+#ifdef CONFIG_MFD_SYSCON
+#include "syscon.c"
+#endif
 #include "task.c"
 #include "time.c"
 #include "uaccess.c"

@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0
-//! Synchronous write-only SPI controller registration and resource consumers.
+//! SPI core abstractions for synchronous write-only host controllers.
+//!
+//! Hardware drivers implement [`Operations`] and call [`register`] with owned
+//! callback state and their [`ControllerConfig`]. The adapter connects that
+//! state to the C SPI core's `transfer_one` callback. SPI core continues to own
+//! peripheral enumeration, GPIO chip select, message queues and delays.
+//! Register access and FIFO handling belong to the hardware driver.
 use crate::{
     bindings,
     device::{Bound, Device},
     devres,
-    error::{from_err_ptr, to_result},
+    error::to_result,
     prelude::*,
     sync::aref::ARef,
 };
@@ -13,6 +19,13 @@ use crate::{
 pub trait Operations: Send + Sync + 'static {
     /// Send all bytes and wait for the last bit, or quiesce the controller on failure.
     fn transfer(&self, device: &Device<Bound>, bytes: &[u8], speed_hz: u32) -> Result;
+}
+/// Clock limits advertised to SPI core by a host controller.
+pub struct ControllerConfig {
+    /// Lowest supported bus clock, in Hz.
+    pub min_speed_hz: u32,
+    /// Highest supported bus clock, in Hz.
+    pub max_speed_hz: u32,
 }
 #[pin_data]
 struct State<T: Operations> {
@@ -46,10 +59,10 @@ impl<T: Operations> Drop for Registration<T> {
 /// SPI core handles GPIO chip select, message ordering and transfer delays.
 pub fn register<T: Operations>(
     device: &Device<Bound>,
-    max_hz: u32,
+    config: ControllerConfig,
     data: impl PinInit<T, Error>,
 ) -> Result {
-    if max_hz < 100_000 {
+    if config.min_speed_hz == 0 || config.max_speed_hz < config.min_speed_hz {
         return Err(EINVAL);
     }
     let state = KBox::pin_init(
@@ -74,7 +87,8 @@ pub fn register<T: Operations>(
             controller,
             ptr.cast_mut().cast(),
             Some(transfer::<T>),
-            max_hz,
+            config.min_speed_hz,
+            config.max_speed_hz,
         );
         to_result(bindings::spi_register_controller(controller))?;
     }
@@ -105,51 +119,5 @@ unsafe extern "C" fn transfer<T: Operations>(
             .data
             .transfer(state.device.as_bound(), bytes, xfer.speed_hz);
         result.map_or_else(|error| error.to_errno(), |_| 0)
-    }
-}
-/// An exclusive reset consumer reference, independent of the provider language.
-pub struct Reset(*mut bindings::reset_control);
-// SAFETY: Reset core serializes provider operations and owns the referenced provider.
-unsafe impl Send for Reset {}
-// SAFETY: Shared access is synchronized by reset core/provider.
-unsafe impl Sync for Reset {}
-impl Reset {
-    /// Gets the device's sole reset line.
-    pub fn get(device: &Device) -> Result<Self> {
-        // SAFETY: The device is live. The returned reference is released by Drop.
-        Ok(Self(from_err_ptr(unsafe {
-            bindings::reset_control_get_exclusive(device.as_raw())
-        })?))
-    }
-    /// Pulses the reset using its provider's implementation.
-    pub fn reset(&self) -> Result {
-        // SAFETY: This object owns an exclusive reset reference.
-        to_result(unsafe { bindings::reset_control_reset(self.0) })
-    }
-}
-impl Drop for Reset {
-    fn drop(&mut self) {
-        // SAFETY: This reference was acquired exactly once and is no longer used.
-        unsafe { bindings::reset_control_put(self.0) };
-    }
-}
-/// A syscon regmap. Syscon keeps its mappings alive for the system lifetime.
-pub struct Syscon(*mut bindings::regmap);
-// SAFETY: Regmap synchronizes register access; syscon mappings are never freed.
-unsafe impl Send for Syscon {}
-// SAFETY: Same synchronization applies to concurrent accesses.
-unsafe impl Sync for Syscon {}
-impl Syscon {
-    /// Resolves a syscon phandle property on this device.
-    pub fn get(device: &Device, property: &CStr) -> Result<Self> {
-        // SAFETY: The property string and device are live throughout lookup.
-        Ok(Self(from_err_ptr(unsafe {
-            bindings::syscon_lookup(device.as_raw(), property.as_char_ptr())
-        })?))
-    }
-    /// Atomically updates selected bits in a register bounded by this regmap.
-    pub fn update_bits(&self, register: u32, mask: u32, value: u32) -> Result {
-        // SAFETY: Syscon owns a live map; regmap checks offsets and serializes RMW.
-        to_result(unsafe { bindings::regmap_update_bits(self.0, register, mask, value) })
     }
 }

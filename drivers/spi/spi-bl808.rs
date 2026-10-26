@@ -7,7 +7,9 @@ use kernel::{
     of, platform,
     prelude::*,
     processor,
-    spi::{self, Reset, Syscon},
+    reset::Reset,
+    spi,
+    syscon::Syscon,
     time::{Instant, Monotonic},
 };
 const CONFIG: usize = 0;
@@ -119,7 +121,10 @@ impl platform::Driver for Spi {
             syscon.update_bits(0x510, 1 << 27, 1 << 27)?; // SPI1 master mode only.
             spi::register(
                 dev,
-                4_000_000,
+                spi::ControllerConfig {
+                    min_speed_hz: 100_000,
+                    max_speed_hz: 4_000_000,
+                },
                 Ok(Hardware {
                     io,
                     clock,

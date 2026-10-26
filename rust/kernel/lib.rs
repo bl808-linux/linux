@@ -125,6 +125,8 @@ pub mod pwm;
 pub mod ratelimit;
 pub mod rbtree;
 pub mod regulator;
+#[cfg(CONFIG_RESET_CONTROLLER)]
+pub mod reset;
 pub mod revocable;
 pub mod safety;
 pub mod scatterlist;
@@ -143,6 +145,8 @@ pub mod soc;
 pub mod std_vendor;
 pub mod str;
 pub mod sync;
+#[cfg(CONFIG_MFD_SYSCON)]
+pub mod syscon;
 pub mod task;
 pub mod time;
 pub mod tracepoint;

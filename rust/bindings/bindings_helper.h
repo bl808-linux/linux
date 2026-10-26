@@ -176,7 +176,11 @@ const unsigned long RUST_CONST_HELPER_GPU_BUDDY_TRIM_DISABLE = GPU_BUDDY_TRIM_DI
 
 #ifdef CONFIG_SPI
 #include <linux/spi/spi.h>
+#endif
+#ifdef CONFIG_RESET_CONTROLLER
 #include <linux/reset.h>
+#endif
+#ifdef CONFIG_MFD_SYSCON
 #include <linux/regmap.h>
 #include <linux/mfd/syscon.h>
 #endif

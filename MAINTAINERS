@@ -4924,12 +4924,12 @@ F:	drivers/clk/clk-bl808-mm.c
 F:	drivers/pinctrl/bflb/
 F:	drivers/spi/spi-bl808.rs
 F:	drivers/tty/serial/bflb_uart.rs
-F:	rust/helpers/serial.c
 F:	rust/helpers/reset.c
+F:	rust/helpers/serial.c
 F:	rust/helpers/spi.c
 F:	rust/helpers/syscon.c
-F:	rust/kernel/serial.rs
 F:	rust/kernel/reset.rs
+F:	rust/kernel/serial.rs
 F:	rust/kernel/spi.rs
 F:	rust/kernel/syscon.rs
 

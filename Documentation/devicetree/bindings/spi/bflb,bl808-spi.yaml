@@ -27,5 +27,11 @@ properties:
     $ref: /schemas/types.yaml#/definitions/phandle
     description: Global register syscon containing the SPI master-mode selection.
 
-required: [compatible, reg, interrupts, clocks, resets, bflb,glb]
+required:
+  - compatible
+  - reg
+  - interrupts
+  - clocks
+  - resets
+  - bflb,glb
 unevaluatedProperties: false

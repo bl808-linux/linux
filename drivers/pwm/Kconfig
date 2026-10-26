@@ -175,6 +175,20 @@ config PWM_BCM_KONA
 	  To compile this driver as a module, choose M here: the module
 	  will be called pwm-bcm-kona.
 
+config PWM_BFLB
+	tristate "Bouffalo Lab BL808 PWM support"
+	depends on ARCH_BOUFFALOLAB || COMPILE_TEST
+	depends on RUST
+	depends on HAS_IOMEM && COMMON_CLK
+	select RUST_PWM_ABSTRACTIONS
+	help
+	  This option enables the Rust driver for the PWM controllers of the
+	  Bouffalo Lab BL808. The two controllers each provide four channels
+	  with a shared 16-bit divider and counter period per controller.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called pwm-bflb.
+
 config PWM_BERLIN
 	tristate "Marvell Berlin PWM support"
 	depends on ARCH_BERLIN || COMPILE_TEST

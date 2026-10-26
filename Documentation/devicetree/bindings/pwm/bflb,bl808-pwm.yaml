@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/pwm/bflb,bl808-pwm.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Bouffalo Lab BL808 PWM controller
+
+maintainers:
+  - Kwanghoon Son <asdfkwang@gmail.com>
+
+description:
+  The PWM block of the Bouffalo Lab BL808 provides two independent
+  four-channel controllers. Each controller counts a 16-bit period divided
+  from its input clock through a 16-bit divider, and each channel gates its
+  output with a high/low threshold window of that counter. The reference
+  manual calls the controllers PWM 0 and PWM 1, and their register groups
+  pwm_mc0 and pwm_mc1.
+
+allOf:
+  - $ref: pwm.yaml#
+
+properties:
+  compatible:
+    const: bflb,bl808-pwm
+
+  reg:
+    description: The PWM block registers, starting at pwm_int_config.
+    maxItems: 1
+
+  clocks:
+    description:
+      The module input clock. The manual selects it as "xclk", the counter
+      clock source reset choice.
+    maxItems: 1
+
+  "#pwm-cells":
+    const: 3
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - "#pwm-cells"
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    pwm@2000a400 {
+        compatible = "bflb,bl808-pwm";
+        reg = <0x2000a400 0x100>;
+        clocks = <&xtal>;
+        #pwm-cells = <3>;
+    };

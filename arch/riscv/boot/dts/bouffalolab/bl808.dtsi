@@ -53,6 +53,14 @@
 			status = "disabled";
 		};
 
+		pwm: pwm@2000a400 {
+			compatible = "bflb,bl808-pwm";
+			reg = <0x2000a400 0x100>;
+			clocks = <&xtal>;
+			#pwm-cells = <3>;
+			status = "disabled";
+		};
+
 		uart2: serial@2000aa00 {
 			compatible = "bflb,uart";
 			reg = <0x2000aa00 0x100>;

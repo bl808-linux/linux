@@ -55,7 +55,8 @@
 		reg = <0>;
 		spi-max-frequency = <4000000>;
 		dc-gpios = <&gpio 13 GPIO_ACTIVE_HIGH>;
-		reset-gpios = <&gpio 24 GPIO_ACTIVE_LOW>;
+		/* MIPI DBI's reset helper drives logical low, then high. */
+		reset-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;
 		backlight = <&backlight>;
 		write-only;
 		format = "r5g6b5";

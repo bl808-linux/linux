@@ -35,3 +35,12 @@ __rust_helper void rust_helper_spi_controller_init(
 	ctlr->max_speed_hz = max_hz;
 }
 
+
+#ifdef CONFIG_RUST_SPI_KUNIT_TEST
+__rust_helper int rust_helper_spi_sync_transfer(struct spi_device *spi,
+                                               struct spi_transfer *xfers,
+                                               unsigned int count)
+{
+    return spi_sync_transfer(spi, xfers, count);
+}
+#endif

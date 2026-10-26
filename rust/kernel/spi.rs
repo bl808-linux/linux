@@ -127,3 +127,6 @@ unsafe extern "C" fn transfer<T: Operations>(
         result.map_or_else(|error| error.to_errno(), |_| 0)
     }
 }
+
+#[cfg(CONFIG_RUST_SPI_KUNIT_TEST)]
+mod tests;

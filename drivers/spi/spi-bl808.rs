@@ -34,64 +34,100 @@ struct Hardware {
     reset: Reset,
     _syscon: Syscon,
 }
+// Keep the production state machine shared with the KUnit fake register backend.
+trait PioPort {
+    fn read32<const REGISTER: usize>(&self) -> u32;
+    fn write32<const REGISTER: usize>(&self, value: u32);
+    fn elapsed_ms(&self) -> u64;
+    fn reset(&self) -> Result;
+}
+struct MmioPort<'a> {
+    view: kernel::io::Mmio<'a, kernel::io::Region<0x90>>,
+    start: Instant<Monotonic>,
+    reset: &'a Reset,
+}
+impl PioPort for MmioPort<'_> {
+    fn read32<const REGISTER: usize>(&self) -> u32 {
+        self.view.read32(REGISTER)
+    }
+    fn write32<const REGISTER: usize>(&self, value: u32) {
+        self.view.write32(value, REGISTER);
+    }
+    fn elapsed_ms(&self) -> u64 {
+        self.start.elapsed().as_millis() as u64
+    }
+    fn reset(&self) -> Result {
+        self.reset.reset()
+    }
+}
+fn transfer_pio(port: &impl PioPort, bytes: &[u8], rate: u64, speed: u32) -> Result {
+    if rate == 0 || speed == 0 {
+        return Err(EINVAL);
+    }
+    // Each SCLK period has two phases, each (prd + 1) input clocks.
+    let half = rate.div_ceil(u64::from(speed) * 2).clamp(1, 256) as u32;
+    let prd = half - 1;
+    port.write32::<CONFIG>(CONFIG_BASE);
+    port.write32::<FIFO>((1 << 2) | (1 << 3));
+    port.write32::<PERIOD>(prd * 0x01010101);
+    port.write32::<INTERVAL>(prd);
+    port.write32::<INTERRUPT>(0x3f00); // Mask all leaf interrupts; no DMA.
+    port.write32::<CONFIG>(CONFIG_BASE | 1);
+    let budget_ms = (bytes.len() as u64 * 8000).div_ceil(u64::from(speed)) * 4 + 1000;
+    let mut offset = 0;
+    let result = (|| {
+        while offset < bytes.len() {
+            let count = (port.read32::<COUNTS>() & 63) as usize;
+            if count > 32 {
+                return Err(EIO);
+            }
+            // RX is unwired. Keep it drained to avoid a receive FIFO overflow.
+            port.write32::<FIFO>(1 << 3);
+            let end = (offset + count).min(bytes.len());
+            while offset < end {
+                port.write32::<WRITE>(u32::from(bytes[offset]));
+                offset += 1;
+            }
+            if port.elapsed_ms() > budget_ms {
+                return Err(ETIMEDOUT);
+            }
+            processor::cpu_relax();
+        }
+        while port.read32::<COUNTS>() & 63 != 32 || port.read32::<BUSY>() & 1 != 0 {
+            port.write32::<FIFO>(1 << 3);
+            if port.elapsed_ms() > budget_ms {
+                return Err(ETIMEDOUT);
+            }
+            processor::cpu_relax();
+        }
+        Ok(())
+    })();
+    port.write32::<CONFIG>(CONFIG_BASE);
+    port.write32::<FIFO>((1 << 2) | (1 << 3));
+    if result.is_err() {
+        port.reset()?;
+    }
+    result
+}
 impl spi::Operations for Hardware {
     fn transfer(&self, dev: &Device<Bound>, bytes: &[u8], speed: u32) -> Result {
         let io = self.io.access(dev)?;
-        let view = io.as_view();
-        let rate = self.clock.0.rate().as_hz() as u64;
-        // Each SCLK period has two phases, each (prd + 1) input clocks.
-        let half = rate.div_ceil(u64::from(speed) * 2).clamp(1, 256) as u32;
-        let prd = half - 1;
-        view.write32(CONFIG_BASE, CONFIG);
-        view.write32((1 << 2) | (1 << 3), FIFO);
-        view.write32(prd * 0x01010101, PERIOD);
-        view.write32(prd, INTERVAL);
-        view.write32(0x3f00, INTERRUPT); // Mask all leaf interrupts; no DMA.
-        view.write32(CONFIG_BASE | 1, CONFIG);
-        let start = Instant::<Monotonic>::now();
-        let budget_ms = (bytes.len() as u64 * 8000).div_ceil(u64::from(speed)) * 4 + 1000;
-        let mut offset = 0;
-        let result = (|| {
-            while offset < bytes.len() {
-                let count = (view.read32(COUNTS) & 63) as usize;
-                if count > 32 {
-                    return Err(EIO);
-                }
-                // RX is unwired. Keep it drained to avoid a receive FIFO overflow.
-                view.write32(1 << 3, FIFO);
-                let end = (offset + count).min(bytes.len());
-                while offset < end {
-                    view.write32(u32::from(bytes[offset]), WRITE);
-                    offset += 1;
-                }
-                if start.elapsed().as_millis() as u64 > budget_ms {
-                    return Err(ETIMEDOUT);
-                }
-                processor::cpu_relax();
-            }
-            while view.read32(COUNTS) & 63 != 32 || view.read32(BUSY) & 1 != 0 {
-                view.write32(1 << 3, FIFO);
-                if start.elapsed().as_millis() as u64 > budget_ms {
-                    return Err(ETIMEDOUT);
-                }
-                processor::cpu_relax();
-            }
-            Ok(())
-        })();
-        view.write32(CONFIG_BASE, CONFIG);
-        view.write32((1 << 2) | (1 << 3), FIFO);
+        let port = MmioPort {
+            view: io.as_view(),
+            start: Instant::<Monotonic>::now(),
+            reset: &self.reset,
+        };
+        let result = transfer_pio(&port, bytes, self.clock.0.rate().as_hz() as u64, speed);
         if result.is_err() {
-            self.reset.reset()?;
-            dev_err!(
-                dev,
-                "SPI1 PIO aborted at {}/{} bytes\n",
-                offset,
-                bytes.len()
-            );
+            dev_err!(dev, "SPI1 PIO aborted ({} bytes)\n", bytes.len());
         }
         result
     }
 }
+#[cfg(CONFIG_SPI_BFLB_RUST_KUNIT_TEST)]
+#[path = "spi-bl808/tests.rs"]
+mod tests;
+
 struct Spi;
 kernel::of_device_table!(OF_TABLE, (), [(of::DeviceId::new(c"bflb,bl808-spi"), ())]);
 impl platform::Driver for Spi {

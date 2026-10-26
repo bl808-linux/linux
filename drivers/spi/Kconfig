@@ -1479,3 +1479,22 @@ config SPI_BFLB_RUST
 	  Initial support is synchronous, 8-bit, mode-0, transmit-only PIO.
 	  SPI core handles GPIO chip select and message sequencing.
 	  Transfers use bounded FIFO polling and reset recovery on failure.
+
+config RUST_SPI_KUNIT_TEST
+	bool "Rust SPI core registration tests" if !KUNIT_ALL_TESTS
+	depends on RUST && SPI=y && KUNIT=y
+	default KUNIT_ALL_TESTS
+	help
+	  Exercise the Rust host API through actual SPI core registrations,
+	  queued transfers and parent removal, using faux devices and fake
+	  callbacks. No SPI hardware is required.
+
+config SPI_BFLB_RUST_KUNIT_TEST
+	bool "Rust BL808 SPI1 PIO tests" if !KUNIT_ALL_TESTS
+	depends on SPI_BFLB_RUST && KUNIT=y
+	default KUNIT_ALL_TESTS
+	help
+	  Run the driver's shared PIO engine with deterministic register and
+	  time backends. Check FIFO boundaries, data order, divider rounding,
+	  busy/stalled timeouts, quiesce and reset recovery without touching
+	  the LCD or live SPI registers.

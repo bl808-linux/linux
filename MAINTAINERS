@@ -4925,6 +4925,7 @@ F:	drivers/clk/clk-bl808-mm.c
 F:	drivers/pinctrl/bflb/
 F:	drivers/pwm/pwm_bflb.rs
 F:	drivers/spi/spi-bl808.rs
+F:	drivers/spi/spi-bl808/
 F:	drivers/tty/serial/bflb_uart.rs
 F:	rust/helpers/reset.c
 F:	rust/helpers/serial.c
@@ -4934,6 +4935,7 @@ F:	rust/kernel/reset.rs
 F:	rust/kernel/serial.rs
 F:	rust/kernel/serial/
 F:	rust/kernel/spi.rs
+F:	rust/kernel/spi/
 F:	rust/kernel/syscon.rs
 
 BPF JIT for ARC

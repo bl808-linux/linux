@@ -73,6 +73,7 @@ properties:
     items:
       - enum:
           - saef,sftc154b
+          - sipeed,m1s-dock-lcd
           - sainsmart18
           - shineworld,lh133k
       - const: panel-mipi-dbi-spi

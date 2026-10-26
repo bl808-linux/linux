@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/spi/bflb,bl808-spi.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Bouffalo Lab BL808 SPI controller
+
+maintainers:
+  - Kwanghoon Son <asdfkwang@gmail.com>
+
+allOf:
+  - $ref: spi-controller.yaml#
+
+properties:
+  compatible:
+    const: bflb,bl808-spi
+  reg:
+    maxItems: 1
+  interrupts:
+    maxItems: 1
+  clocks:
+    maxItems: 1
+  resets:
+    maxItems: 1
+  bflb,glb:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Global register syscon containing the SPI master-mode selection.
+
+required: [compatible, reg, interrupts, clocks, resets, bflb,glb]
+unevaluatedProperties: false

@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/pinctrl/bflb,bl808-pinctrl.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Bouffalo Lab BL808 pin controller and GPIO
+
+maintainers:
+  - Kwanghoon Son <asdfkwang@gmail.com>
+
+properties:
+  compatible:
+    const: bflb,bl808-pinctrl
+  reg:
+    maxItems: 1
+  gpio-controller: true
+  "#gpio-cells":
+    const: 2
+
+patternProperties:
+  "-pins$":
+    type: object
+    allOf:
+      - $ref: pincfg-node.yaml#
+      - $ref: pinmux-node.yaml#
+    properties:
+      pins:
+        items:
+          pattern: '^GPIO([0-9]|[1-3][0-9]|4[0-5])$'
+      function:
+        enum: [gpio, spi1]
+      bias-disable: true
+      bias-pull-up: true
+      bias-pull-down: true
+      input-enable: true
+      input-schmitt-enable: true
+      bflb,drive-strength:
+        $ref: /schemas/types.yaml#/definitions/uint32
+        description: Raw pad drive encoding, from weakest (0) to strongest (3).
+        maximum: 3
+    required: [pins, function]
+    additionalProperties: false
+
+required: [compatible, reg, gpio-controller, "#gpio-cells"]
+additionalProperties: false

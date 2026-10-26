@@ -37,6 +37,12 @@ __rust_helper void rust_helper_spi_controller_init(
 
 
 #ifdef CONFIG_RUST_SPI_KUNIT_TEST
+__rust_helper unsigned int
+rust_helper_spi_controller_refcount(struct spi_controller *ctlr)
+{
+	return refcount_read(&ctlr->dev.kobj.kref.refcount);
+}
+
 __rust_helper int rust_helper_spi_sync_transfer(struct spi_device *spi,
                                                struct spi_transfer *xfers,
                                                unsigned int count)

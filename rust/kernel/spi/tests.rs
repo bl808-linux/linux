@@ -179,8 +179,14 @@ mod tests {
             let controller = controller(parent.as_ref().as_ref()).unwrap();
             let spi = Peripheral::new(&controller);
             assert_eq!(spi.write(&[0x12, 0x34, 0x56], 2_000_000), 0);
-            // An additional device reference may outlive unregister, but not callback state.
+            drop(spi);
+            // Keep only our controller reference after parent removal. This
+            // catches a leaked spi_alloc_host allocation reference as well.
             drop(parent);
+            assert_eq!(
+                unsafe { bindings::spi_controller_refcount(controller.raw()) },
+                1
+            );
         }
         assert_eq!(counts.calls.load(Relaxed), 4);
         assert_eq!(counts.bytes.load(Relaxed), 12);

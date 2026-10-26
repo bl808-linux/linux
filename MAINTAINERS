@@ -4911,13 +4911,23 @@ M:	Kwanghoon Son <asdfkwang@gmail.com>
 L:	linux-riscv@lists.infradead.org
 L:	linux-serial@vger.kernel.org
 S:	Maintained
+F:	Documentation/devicetree/bindings/clock/bflb,bl808-mm-spi-clock.yaml
+F:	Documentation/devicetree/bindings/display/panel/panel-mipi-dbi-spi.yaml
 F:	Documentation/devicetree/bindings/interrupt-controller/bflb,bl808-mcu-intc.yaml
+F:	Documentation/devicetree/bindings/mfd/bflb,bl808-glb.yaml
+F:	Documentation/devicetree/bindings/pinctrl/bflb,bl808-pinctrl.yaml
 F:	Documentation/devicetree/bindings/riscv/bflb.yaml
 F:	Documentation/devicetree/bindings/serial/bflb,uart.yaml
+F:	Documentation/devicetree/bindings/spi/bflb,bl808-spi.yaml
 F:	arch/riscv/boot/dts/bouffalolab/
+F:	drivers/clk/clk-bl808-mm.c
+F:	drivers/pinctrl/bflb/
+F:	drivers/spi/spi-bl808.rs
 F:	drivers/tty/serial/bflb_uart.rs
 F:	rust/helpers/serial.c
+F:	rust/helpers/spi.c
 F:	rust/kernel/serial.rs
+F:	rust/kernel/spi.rs
 
 BPF JIT for ARC
 M:	Shahab Vahedi <list+bpf@vahedi.org>

@@ -31,3 +31,14 @@ bool rust_helper_uart_port_console_lock(struct uart_port *port, unsigned long *f
 	return true;
 }
 #endif
+
+#ifdef CONFIG_RUST_SERIAL_KUNIT_TEST
+/* Check the context supplied by the Rust adapters, including non-lockdep builds. */
+__rust_helper
+bool rust_helper_uart_port_test_locked(struct uart_port *port)
+{
+	lockdep_assert_held(&port->lock);
+	return irqs_disabled() &&
+		(!IS_ENABLED(CONFIG_SMP) || spin_is_locked(&port->lock));
+}
+#endif

@@ -76,3 +76,53 @@ Per-patch checkpatch retains new-file MAINTAINERS reminders (the final patch
 adds the entries) and an existing short SoC Kconfig-help warning. Kernel builds
 retain the base-tree unused Flags::from_raw warning. These are separate from
 the correctness findings above.
+
+## SerialOps refactor and board validation (2026-10-28)
+
+The follow-up refactor keeps the twelve-patch RFC, folds changes into the
+abstraction/consumer introductions, and retains the RFC prefix in b4.
+`serial::SerialOps` follows `pwm::PwmOps` naming. Only `tx_empty`,
+`set_termios` and `console_write` are required in this polling-only series.
+
+The typed `Driver<T>`, private `PortData<T>` and callback adapter enforce
+hardware dispatch. `Port<'_>` now represents the callback context without
+a redundant hardware type parameter. Private console and termios modules
+separate their C contracts without adding public registration APIs.
+`Port` and `LockedPort` cannot be sent or shared between threads. Owned
+registration, devres rollback, UART locking and SRCU teardown remain in
+place; failed emergency trylock still provides no locked token.
+
+Compared the local PWM, serdev, PHY and platform abstractions. The extension
+policy is to keep one registration owner and compose capabilities when
+real users require them. A non-console UART consumer would justify an
+opt-in console trait/adapter; IRQ-driven TX/RX would introduce their own
+queue and lock contracts. Optional individual C hooks may use `#[vtable]`,
+as in serdev and PHY. No unused capability traits or full-UART stubs are
+introduced by this refactor.
+
+Validation used the actual BL808 M1s Dock, booted from verified RAM uploads:
+
+- Upstream RISC-V Image.gz and local RISC-V KUnit Image.gz/board DTB built.
+  ARM64 also compiled; QEMU was not run.
+- `uv run pytest`: 122 passed, including real-kernel API compile probes
+  checking that both callback contexts reject Send and Sync.
+- All six Serial KUnit cases passed on the board, including callback lock
+  contexts, registration failures and console removal waiting for SRCU.
+- SBI earlycon handed off to the native ttyBFLB0 UART3 console.
+- Eight unbind/rebind cycles completed; all 32 racing printk records were
+  retained in the ring and all 32 stable records arrived on the wire.
+- Timer interrupt count advanced from 10156 to 10898. Unsupported userspace
+  TTY I/O was checked. No kernel/KUnit failure was observed.
+- The board was restored to UART3 U-Boot. All five existing SD file sizes
+  and CRCs were checked before and after the run and matched.
+- b4 exported twelve patches with RFC subjects; checkpatch reported zero
+  errors and the same seven existing per-patch warnings. Reapplying the
+  export reproduced the upstream tree exactly.
+
+The board image was built from validation commit
+9572355e6e7ef561baae331a29be09fd18605ff7, containing upstream commit
+4d0a78753e49a0df3857c40f3e7b15682f8a8274. This subsequent documentation
+commit changes no tested kernel code. The imager workspace retains artifact
+hashes, source identity, raw UART logs and structured results under
+`out/linux-console-checks/serialops/`. The board run covered the SBI handoff
+mode; no additional native/stdout boot matrix is claimed.

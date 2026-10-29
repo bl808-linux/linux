@@ -149,6 +149,144 @@ mod tests {
     }
 
     #[test]
+    fn termios_controls_preserve_other_flags() {
+        use crate::bindings;
+
+        for size in [bindings::CS5, bindings::CS6, bindings::CS7, bindings::CS8] {
+            for parity in [
+                0,
+                bindings::PARENB,
+                bindings::PARENB | bindings::PARODD,
+                bindings::PARENB | bindings::CMSPAR,
+                bindings::PARENB | bindings::CMSPAR | bindings::PARODD,
+                bindings::CMSPAR | bindings::PARODD,
+            ] {
+                for stop in [0, bindings::CSTOPB] {
+                    for flow in [0, bindings::CRTSCTS] {
+                        let flags = size
+                            | parity
+                            | stop
+                            | flow
+                            | bindings::CREAD
+                            | bindings::CLOCAL
+                            | bindings::HUPCL
+                            | bindings::B115200;
+                        let mut raw = bindings::ktermios {
+                            c_cflag: flags,
+                            c_iflag: 1,
+                            c_oflag: 2,
+                            c_lflag: 4,
+                            ..Default::default()
+                        };
+                        // SAFETY: raw is initialized and exclusively borrowed until the
+                        // last use of termios below.
+                        let termios = unsafe { Termios::from_raw_mut(&mut raw) };
+                        assert_eq!(termios.parity_enabled(), parity & bindings::PARENB != 0);
+                        assert_eq!(termios.odd_parity(), parity & bindings::PARODD != 0);
+                        assert_eq!(termios.two_stop_bits(), stop != 0);
+                        let bits = termios.char_size();
+                        termios.disable_mark_space_parity();
+                        termios.disable_hardware_flow_control();
+                        assert_eq!(termios.char_size(), bits);
+                        assert_eq!(raw.c_cflag, flags & !(bindings::CMSPAR | bindings::CRTSCTS));
+                        assert_eq!((raw.c_iflag, raw.c_oflag, raw.c_lflag), (1, 2, 4));
+                    }
+                }
+            }
+        }
+    }
+
+    fn raw_termios(baud: u32) -> crate::bindings::ktermios {
+        let mut raw = crate::bindings::ktermios::default();
+        // SAFETY: raw is initialized and exclusively accessible.
+        unsafe { crate::bindings::tty_termios_encode_baud_rate(&mut raw, baud, baud) };
+        raw
+    }
+
+    fn with_locked_test_port<R>(f: impl FnOnce(&LockedPort<'_>) -> R) -> R {
+        let driver = driver();
+        let parent = faux::Registration::new(c"rust-serial-termios", None).unwrap();
+        register_port(
+            driver.clone(),
+            parent.as_ref().as_ref(),
+            config(0),
+            Ok(Hardware(counts())),
+        )
+        .unwrap();
+        // SAFETY: The bound parent owns this inactive port for the callback.
+        unsafe {
+            let raw = (*(*driver.inner.get()).state).uart_port;
+            PortData::<Hardware>::with_port(raw, |_, port| port.with_lock(f))
+        }
+    }
+
+    #[test]
+    fn baud_selection_matches_serial_core() {
+        use crate::bindings;
+
+        for (baud, previous) in [
+            (115200, None),
+            (0, None),
+            (1, Some(115200)),
+            (4000001, None),
+            (4000001, Some(115200)),
+            (1, Some(0)),
+        ] {
+            let (actual, expected_baud, raw, expected) = with_locked_test_port(|port| {
+                let mut raw = raw_termios(baud);
+                let mut expected = raw;
+                let old = previous.map(raw_termios);
+                let old_ptr = old.as_ref().map_or(core::ptr::null(), core::ptr::from_ref);
+                // SAFETY: The port is locked. Both termios values are initialized
+                // and expected is exclusively borrowed for the C call.
+                let expected_baud = unsafe {
+                    bindings::uart_get_baud_rate(port.raw, &mut expected, old_ptr, 611, 4000000)
+                };
+                // SAFETY: raw is exclusively borrowed and old is immutable until
+                // these callback-scoped references are no longer used.
+                let actual = unsafe {
+                    port.baud_rate(
+                        Termios::from_raw_mut(&mut raw),
+                        old.as_ref().map(|t| Termios::from_raw(t)),
+                        611,
+                        4000000,
+                    )
+                };
+                (actual, expected_baud, raw, expected)
+            });
+            assert_eq!(actual, core::num::NonZeroU32::new(expected_baud));
+            assert_eq!(raw.c_cflag, expected.c_cflag);
+            assert_eq!(raw.c_ispeed, expected.c_ispeed);
+            assert_eq!(raw.c_ospeed, expected.c_ospeed);
+        }
+    }
+
+    #[test]
+    fn baud_failure_keeps_serial_core_termios_changes() {
+        let (actual, raw) = with_locked_test_port(|port| {
+            let mut raw = raw_termios(1);
+            let old = raw_termios(2);
+            // Both requested rates are outside the range. The real C helper emits
+            // its expected WARN_ON and returns zero after encoding min + 1.
+            // SAFETY: The initialized termios values remain exclusively/shared
+            // accessible respectively until the returned borrows are no longer used.
+            let actual = unsafe {
+                port.baud_rate(
+                    Termios::from_raw_mut(&mut raw),
+                    Some(Termios::from_raw(&old)),
+                    611,
+                    4000000,
+                )
+            };
+            (actual, raw)
+        });
+        assert!(actual.is_none());
+        assert_eq!(raw.c_ispeed, 612);
+        assert_eq!(raw.c_ospeed, 612);
+        assert_eq!(raw.c_cflag & crate::bindings::CBAUD, crate::bindings::B600);
+    }
+
+    #[test]
     fn duplicate_port_failure_preserves_original() {
         let counts = counts();
         let driver = driver();

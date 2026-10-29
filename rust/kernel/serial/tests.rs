@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0
 
 #[crate::macros::kunit_tests(rust_serial)]
-mod tests {
+mod cases {
     use crate::serial::PortData;
     use crate::ModuleMetadata;
     use crate::{
-        faux,
+        devres, faux,
         prelude::*,
         serial::*,
         sync::{
             atomic::{Atomic, Relaxed},
-            Arc,
+            Arc, SpinLock,
         },
     };
 
@@ -57,12 +57,18 @@ mod tests {
     }
 
     fn driver() -> Arc<Driver<Hardware>> {
+        driver_for(c"ttyRustTest")
+    }
+
+    fn driver_for<T: SerialOps>(device_name: &'static CStr) -> Arc<Driver<T>> {
         Arc::pin_init(
             Driver::new(
-                c"rust_serial_test",
-                c"ttyRustTest",
-                2,
-                115200,
+                DriverConfig {
+                    name: c"rust_serial_test",
+                    device_name,
+                    ports: 2,
+                    default_baud: 115200,
+                },
                 &crate::LocalModule::THIS_MODULE,
             ),
             GFP_KERNEL,
@@ -146,6 +152,183 @@ mod tests {
         assert_eq!(counts.writes.load(Relaxed), 1);
         drop(parent);
         assert_eq!(counts.dropped.load(Relaxed), 1);
+    }
+
+    #[test]
+    fn failed_console_trylock_preserves_outer_lock_and_irqs() {
+        use crate::bindings;
+
+        let driver = driver();
+        let parent = faux::Registration::new(c"rust-serial-trylock", None).unwrap();
+        register_port(
+            driver.clone(),
+            parent.as_ref().as_ref(),
+            config(0),
+            Ok(Hardware(counts())),
+        )
+        .unwrap();
+        // SAFETY: This helper only reads the current local IRQ state.
+        let before = unsafe { bindings::uart_port_test_irqs_disabled() };
+        // SAFETY: The bound parent owns this inactive port throughout the call.
+        let (during, after_inner, after_irqs) = unsafe {
+            let raw = (*(*driver.inner.get()).state).uart_port;
+            PortData::<Hardware>::with_port(raw, |_, port| {
+                port.with_lock(|_| {
+                    // Select the real C trylock path for this port only, without
+                    // changing oops_in_progress. M1s uses CONFIG_SMP, so a lock
+                    // already held on this CPU makes spin_trylock fail.
+                    bindings::uart_port_test_set_console_trylock(raw);
+                    let during = port.with_console_access(|| {
+                        (
+                            bindings::uart_port_test_locked(raw),
+                            bindings::uart_port_test_irqs_disabled(),
+                        )
+                    });
+                    bindings::uart_port_test_set_console_trylock(core::ptr::null_mut());
+                    (
+                        during,
+                        bindings::uart_port_test_locked(raw),
+                        bindings::uart_port_test_irqs_disabled(),
+                    )
+                })
+            })
+        };
+        // SAFETY: This helper only reads the current local IRQ state.
+        let after = unsafe { bindings::uart_port_test_irqs_disabled() };
+        // Keep assertions outside the UART lock and its IRQ-disabled section.
+        assert_eq!(during, (true, true));
+        assert!(after_inner);
+        assert!(after_irqs);
+        assert_eq!(after, before);
+    }
+
+    struct LateCounts {
+        payload_dropped: Atomic<u32>,
+        hardware_dropped: Atomic<u32>,
+        live_value: Atomic<u32>,
+        revoked_calls: Atomic<u32>,
+    }
+
+    struct LatePayload {
+        value: u32,
+        counts: Arc<LateCounts>,
+    }
+
+    impl Drop for LatePayload {
+        fn drop(&mut self) {
+            self.counts.payload_dropped.fetch_add(1, Relaxed);
+        }
+    }
+
+    struct LateHardware {
+        resource: Arc<SpinLock<Option<devres::Devres<LatePayload>>>>,
+        counts: Arc<LateCounts>,
+    }
+
+    impl SerialOps for LateHardware {
+        fn tx_empty(&self, _port: &Port<'_>) -> bool {
+            true
+        }
+
+        fn set_termios(&self, _port: &LockedPort<'_>, _new: &mut Termios, _old: Option<&Termios>) {}
+
+        fn console_write(&self, port: &Port<'_>, _bytes: &[u8]) {
+            let slot = self.resource.lock();
+            let Some(resource) = slot.as_ref() else {
+                return;
+            };
+            if !core::ptr::eq(resource.device(), port.device()) {
+                return;
+            }
+            if let Some(payload) = resource.try_access() {
+                self.counts.live_value.store(payload.value, Relaxed);
+            } else {
+                self.counts.revoked_calls.fetch_add(1, Relaxed);
+            }
+        }
+    }
+
+    impl Drop for LateHardware {
+        fn drop(&mut self) {
+            self.counts.hardware_dropped.fetch_add(1, Relaxed);
+        }
+    }
+
+    struct LateWrite(Arc<Driver<LateHardware>>);
+
+    impl LateWrite {
+        fn write(&self) {
+            // SAFETY: Both callers retain the driver and its registered port.
+            // The console is inactive; no other reader or writer uses its index.
+            unsafe {
+                (*self.0.console.get()).index = 0;
+                ConsoleAdapter::<LateHardware>::console_write(
+                    self.0.console.get(),
+                    c"late".as_char_ptr(),
+                    4,
+                );
+                (*self.0.console.get()).index = -1;
+            }
+        }
+    }
+
+    impl Drop for LateWrite {
+        fn drop(&mut self) {
+            // This action was registered after the port but before the payload:
+            // devres has revoked the payload and has not removed the port yet.
+            self.write();
+        }
+    }
+
+    #[test]
+    fn late_resource_revocation_is_checked_before_port_removal() {
+        let counts = Arc::new(
+            LateCounts {
+                payload_dropped: Atomic::new(0),
+                hardware_dropped: Atomic::new(0),
+                live_value: Atomic::new(0),
+                revoked_calls: Atomic::new(0),
+            },
+            GFP_KERNEL,
+        )
+        .unwrap();
+        let resource = Arc::pin_init(crate::new_spinlock!(None), GFP_KERNEL).unwrap();
+        let driver = driver_for::<LateHardware>(c"ttyRustLate");
+        let parent = faux::Registration::new(c"rust-serial-late-resource", None).unwrap();
+        let device = parent.as_ref().as_ref();
+        register_port(
+            driver.clone(),
+            device,
+            config(0),
+            Ok(LateHardware {
+                resource: resource.clone(),
+                counts: counts.clone(),
+            }),
+        )
+        .unwrap();
+        let late_write = LateWrite(driver.clone());
+        devres::register::<LateWrite, Error>(device, Ok(late_write), GFP_KERNEL).unwrap();
+        let payload = devres::Devres::new(
+            device,
+            Ok::<_, Error>(LatePayload {
+                value: 42,
+                counts: counts.clone(),
+            }),
+        )
+        .unwrap();
+        *resource.lock() = Some(payload);
+        // SAFETY: The bound parent owns the registered port and initialized data.
+        unsafe {
+            let raw = (*(*driver.inner.get()).state).uart_port;
+            PortData::<LateHardware>::with_port(raw, |state, port| {
+                port.with_console_access(|| state.data.console_write(port, b"live"))
+            });
+        }
+        assert_eq!(counts.live_value.load(Relaxed), 42);
+        drop(parent);
+        assert_eq!(counts.payload_dropped.load(Relaxed), 1);
+        assert_eq!(counts.revoked_calls.load(Relaxed), 1);
+        assert_eq!(counts.hardware_dropped.load(Relaxed), 1);
     }
 
     #[test]
@@ -385,8 +568,8 @@ mod tests {
         let counts = counts();
         let driver = driver();
         let parent = faux::Registration::new(c"rust-serial-srcu", None).unwrap();
-        // SAFETY: The console core copies the name. No options pointer is retained.
         assert_eq!(
+            // SAFETY: Console core copies the name. No options pointer is retained.
             unsafe {
                 bindings::add_preferred_console(
                     c"ttyRustTest".as_char_ptr(),
@@ -428,6 +611,8 @@ mod tests {
                 // SAFETY: This is the same SRCU read section used by legacy printk.
                 // The test parent remains bound until after entered is signaled.
                 let cookie = unsafe { bindings::console_srcu_read_lock() };
+                // SAFETY: The SRCU reader keeps the registered console and port
+                // live, and the static text supplies six initialized bytes.
                 unsafe {
                     ConsoleAdapter::<Hardware>::console_write(
                         reader_driver.console.get(),

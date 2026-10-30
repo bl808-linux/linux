@@ -244,6 +244,7 @@ impl Flags {
     }
 
     /// Wrap a raw `c_ulong` value returned by a C API into [`Flags`].
+    #[cfg(CONFIG_PCI)]
     pub(crate) const fn from_raw(value: c_ulong) -> Self {
         Flags(value)
     }

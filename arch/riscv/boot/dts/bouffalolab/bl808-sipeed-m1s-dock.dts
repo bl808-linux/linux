@@ -17,6 +17,16 @@
 	};
 };
 
+&{/soc} {
+	uart_reset_validation: reset-controller@30007000 {
+		compatible = "bouffalolab,bl808-reset-validation";
+		reg = <0x30007000 0x100>;
+		#reset-cells = <1>;
+		validation-uart = <&uart3>;
+	};
+};
+
 &uart3 {
+	resets = <&uart_reset_validation 0>;
 	status = "okay";
 };

@@ -837,3 +837,6 @@ impl LockedPort<'_> {
         }
     }
 }
+
+#[cfg(CONFIG_RUST_SERIAL_KUNIT_TEST)]
+mod tests;

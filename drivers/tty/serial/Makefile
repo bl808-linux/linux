@@ -101,3 +101,5 @@ obj-$(CONFIG_KGDB_SERIAL_CONSOLE) += kgdboc.o
 obj-$(CONFIG_SERIAL_NUVOTON_MA35D1) += ma35d1_serial.o
 
 obj-$(CONFIG_SERIAL_BL808_RUST) += bl808_uart.o
+
+obj-$(CONFIG_BL808_RESET_VALIDATION) += bl808_reset_validation.o
